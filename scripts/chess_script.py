@@ -1,24 +1,29 @@
 from __future__ import annotations
 
 import zipfile
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from os.path import exists
 from sqlite3 import Connection, Cursor, connect
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import chess
 import requests
-from chess import Color, Move
+from chess import Move
 from chess.engine import Limit, SimpleEngine
 from chess.pgn import Game
 from cpufeature import CPUFeature
-from pyinline import inline
+from pytz import timezone
+
+if TYPE_CHECKING:
+	from chess import Color
+	from pytz.tzinfo import BaseTzInfo
 
 STOCKFISH_URL_AVX2: str = "https://github.com/official-stockfish/Stockfish/releases/latest/download/stockfish-windows-x86-64-avx2.zip"
 STOCKFISH_URL_POPCNT: str = "https://github.com/official-stockfish/Stockfish/releases/latest/download/stockfish-windows-x86-64-sse41-popcnt.zip"
 PLAYER: bool = False
 MOVE_ERROR: str = "NO MOVE FOUND"
 RESULT_ERROR: str = "NO RESULT FOUND"
+TIMEZONE: BaseTzInfo = timezone("Europe/Warsaw")
 
 
 class KawasakiRobot:
@@ -26,6 +31,15 @@ class KawasakiRobot:
 		self.ip: str = ip
 
 	def move_to_square(self, square: chess.Square | int) -> None:
+		pass
+
+	def kingside_castle(self) -> None:
+		pass
+
+	def queenside_castle(self) -> None:
+		pass
+
+	def take_piece(self, square: chess.Square | int) -> None:
 		pass
 
 
@@ -37,6 +51,17 @@ class Gripper:
 		pass
 
 	def close(self) -> None:
+		pass
+
+
+class ChessClock:
+	def __init__(self) -> None:
+		pass
+
+	def start(self) -> None:
+		pass
+
+	def stop(self) -> None:
 		pass
 
 
@@ -114,7 +139,7 @@ class ChessDatabase:
 
 	def add_game_data(self, board: Board, start_datetime: datetime, players: tuple[str, ...] = ("Stockfish", "Stockfish")) -> None:
 		game: Game = Game().from_board(board)
-		duration: timedelta = datetime.now(UTC) - start_datetime
+		duration: timedelta = datetime.now(TIMEZONE) - start_datetime
 		result_id: Literal[1, 2, 3, 4, 5, 6, 7, 8] = 1
 		match game.headers["Result"]:
 			case "1-0":
@@ -153,7 +178,6 @@ class ChessDatabase:
 		self.connection.commit()
 
 
-@inline
 def get_engine() -> SimpleEngine:
 	if CPUFeature.get("OS_AVX2") or CPUFeature.get("AVX2"):
 		engine_path = r"stockfish\stockfish-windows-x86-64-avx2.exe"
@@ -169,18 +193,16 @@ def get_engine() -> SimpleEngine:
 	return SimpleEngine.popen_uci(engine_path)
 
 
-@inline
 def get_user_move() -> Move | None:
-	return None
+	return Move.from_uci(input("Your move: "))
 
 
-@inline
 def chess_game() -> None:
 	players: tuple[str, ...] = ("Stockfish", "Human")
 	engine: SimpleEngine = get_engine()
 	database: ChessDatabase = ChessDatabase("chess.db")
 	board: Board = Board()
-	start_datetime: datetime = datetime.now(UTC)
+	start_datetime: datetime = datetime.now(TIMEZONE)
 	while not board.is_game_over():
 		engine_move: Move | None = engine.play(board, Limit(time=0.0001)).move
 		if engine_move is None:
@@ -190,17 +212,16 @@ def chess_game() -> None:
 		now_moving: Color = board.turn  # <- Color (True for white, False for black)
 		castling: Literal[0, 1, 2] = 0  # <- Castling type (0 for no castling, 1 for kingside, 2 for queenside)
 		if board.is_castling(engine_move):
-			castling: Literal[0, 1, 2] = 1 if board.is_kingside_castling(engine_move) else 2
+			castling = 1 if board.is_kingside_castling(engine_move) else 2
 		board.push(engine_move)
 		if PLAYER:
 			user_move: Move | None = get_user_move()
 			if user_move is None:
 				raise ValueError(MOVE_ERROR)  # <- No move found error / maybe will be handled in the future
 			board.push(user_move)
-	database.add_game_data(board, start_datetime, players)
 	engine.quit()
+	database.add_game_data(board, start_datetime, players)
 
 
 if __name__ == "__main__":
-	for _ in range(100):
-		chess_game()
+	chess_game()
