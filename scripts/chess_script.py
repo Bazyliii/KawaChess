@@ -4,7 +4,7 @@ import zipfile
 from datetime import datetime, timedelta
 from os.path import exists
 from sqlite3 import Connection, Cursor, connect
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import chess
 import requests
@@ -15,14 +15,12 @@ from cpufeature import CPUFeature
 from pytz import timezone
 
 if TYPE_CHECKING:
-	from chess import Color
+	from chess import Color, Square
 	from pytz.tzinfo import BaseTzInfo
 
 STOCKFISH_URL_AVX2: str = "https://github.com/official-stockfish/Stockfish/releases/latest/download/stockfish-windows-x86-64-avx2.zip"
 STOCKFISH_URL_POPCNT: str = "https://github.com/official-stockfish/Stockfish/releases/latest/download/stockfish-windows-x86-64-sse41-popcnt.zip"
 PLAYER: bool = False
-MOVE_ERROR: str = "NO MOVE FOUND"
-RESULT_ERROR: str = "NO RESULT FOUND"
 TIMEZONE: BaseTzInfo = timezone("Europe/Warsaw")
 
 
@@ -30,7 +28,7 @@ class KawasakiRobot:
 	def __init__(self, ip: str) -> None:
 		self.ip: str = ip
 
-	def move_to_square(self, square: chess.Square | int) -> None:
+	def move_to_square(self, square: Square | int) -> None:
 		pass
 
 	def kingside_castle(self) -> None:
@@ -39,7 +37,7 @@ class KawasakiRobot:
 	def queenside_castle(self) -> None:
 		pass
 
-	def take_piece(self, square: chess.Square | int) -> None:
+	def take_piece(self, square: Square | int) -> None:
 		pass
 
 
@@ -158,7 +156,7 @@ class ChessDatabase:
 				else:
 					result_id = 8  # FIXME <- This may be resignation. Handle it later.
 			case _:
-				raise ValueError(RESULT_ERROR)
+				raise ResultError()
 		self.cursor.execute(
 			"""
             INSERT INTO chess_games(white_player, black_player, date, duration, result_id, move_count, FEN_end_position, PGN_game_sequence)
@@ -176,6 +174,16 @@ class ChessDatabase:
 			),
 		)
 		self.connection.commit()
+
+
+class MoveError(Exception):
+    def __init__(self, message: str = "Move value is None or illegal!") -> None:
+        super().__init__(message)
+
+
+class ResultError(Exception):
+	def __init__(self, message: str = "Result value is not within legal range!") -> None:
+		super().__init__(message)
 
 
 def get_engine() -> SimpleEngine:
@@ -206,7 +214,7 @@ def chess_game() -> None:
 	while not board.is_game_over():
 		engine_move: Move | None = engine.play(board, Limit(time=0.0001)).move
 		if engine_move is None:
-			raise ValueError(MOVE_ERROR)  # <- No move found error / maybe will be handled in the future
+			raise MoveError()  # <- No move found error / maybe will be handled in the future
 		from_square: int = engine_move.from_square  # <- Numeric notation (0 in bottom-left corner, 63 in top-right corner)
 		to_square: int = engine_move.to_square  # <- Numeric notation (0 in bottom-left corner, 63 in top-right corner)
 		now_moving: Color = board.turn  # <- Color (True for white, False for black)
@@ -217,7 +225,7 @@ def chess_game() -> None:
 		if PLAYER:
 			user_move: Move | None = get_user_move()
 			if user_move is None:
-				raise ValueError(MOVE_ERROR)  # <- No move found error / maybe will be handled in the future
+				raise MoveError()  # <- No move found error / maybe will be handled in the future
 			board.push(user_move)
 	engine.quit()
 	database.add_game_data(board, start_datetime, players)
