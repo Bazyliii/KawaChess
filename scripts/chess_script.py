@@ -4,14 +4,14 @@ import zipfile
 from datetime import datetime, timedelta
 from os.path import exists
 from sqlite3 import Connection, Cursor, connect
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 import chess
 import requests
 from chess import Move
 from chess.engine import Limit, SimpleEngine
 from chess.pgn import Game
-from cpufeature import CPUFeature
+from cpuinfo import get_cpu_info
 from pytz import timezone
 
 if TYPE_CHECKING:
@@ -22,6 +22,11 @@ STOCKFISH_URL_AVX2: str = "https://github.com/official-stockfish/Stockfish/relea
 STOCKFISH_URL_POPCNT: str = "https://github.com/official-stockfish/Stockfish/releases/latest/download/stockfish-windows-x86-64-sse41-popcnt.zip"
 PLAYER: bool = False
 TIMEZONE: BaseTzInfo = timezone("Europe/Warsaw")
+
+
+class ChessApp:
+	def __init__(self) -> None:
+		pass
 
 
 class KawasakiRobot:
@@ -64,7 +69,7 @@ class ChessClock:
 
 
 class Board(chess.Board):
-	def is_piece_on_square(self, square: chess.Square) -> bool:
+	def is_piece_on_square(self, square: Square) -> bool:
 		"""
 		Check if there is a piece on the specified square.
 
@@ -94,37 +99,37 @@ class ChessDatabase:
 			self.cursor: Cursor = self.connection.cursor()
 			for query in (
 				"""
-                CREATE TABLE IF NOT EXISTS results(
-                    id INTEGER,
-                    name TEXT NOT NULL,
-                    CONSTRAINT results_pk PRIMARY KEY (id)
-                );""",
+				CREATE TABLE IF NOT EXISTS results(
+					id INTEGER,
+					name TEXT NOT NULL,
+					CONSTRAINT results_pk PRIMARY KEY (id)
+				);""",
 				"""
-                INSERT INTO results(name)
-                    VALUES  ("NO RESULT"),
-                            ("WHITE WIN"),
-                            ("BLACK WIN"),
-                            ("DRAW BY FIVEFOLD REPETITION"),
-                            ("DRAW BY STALEMATE"),
-                            ("DRAW BY FIFTY-MOVE RULE"),
-                            ("DRAW BY INSUFFICIENT MATERIAL"),
-                            ("DRAW");
-                """,
+				INSERT INTO results(name)
+					VALUES  ("NO RESULT"),
+							("WHITE WIN"),
+							("BLACK WIN"),
+							("DRAW BY FIVEFOLD REPETITION"),
+							("DRAW BY STALEMATE"),
+							("DRAW BY FIFTY-MOVE RULE"),
+							("DRAW BY INSUFFICIENT MATERIAL"),
+							("DRAW");
+				""",
 				"""
-                CREATE TABLE IF NOT EXISTS chess_games(
-                    id INTEGER NOT NULL,
-                    white_player TEXT NOT NULL,
-                    black_player TEXT NOT NULL,
-                    date TEXT NOT NULL,
-                    duration TEXT NOT NULL,
-                    result_id INTEGER NOT NULL,
-                    move_count INTEGER NOT NULL,
-                    FEN_end_position TEXT NOT NULL,
-                    PGN_game_sequence TEXT NOT NULL,
-                    CONSTRAINT chess_games_pk PRIMARY KEY (id)
-                    CONSTRAINT results_fk FOREIGN KEY (result_id) REFERENCES results(id) ON DELETE CASCADE ON UPDATE CASCADE
-                );
-                """,
+				CREATE TABLE IF NOT EXISTS chess_games(
+					id INTEGER NOT NULL,
+					white_player TEXT NOT NULL,
+					black_player TEXT NOT NULL,
+					date TEXT NOT NULL,
+					duration TEXT NOT NULL,
+					result_id INTEGER NOT NULL,
+					move_count INTEGER NOT NULL,
+					FEN_end_position TEXT NOT NULL,
+					PGN_game_sequence TEXT NOT NULL,
+					CONSTRAINT chess_games_pk PRIMARY KEY (id)
+					CONSTRAINT results_fk FOREIGN KEY (result_id) REFERENCES results(id) ON DELETE CASCADE ON UPDATE CASCADE
+				);
+				""",
 			):
 				self.cursor.execute(query)
 			self.connection.commit()
@@ -156,12 +161,12 @@ class ChessDatabase:
 				else:
 					result_id = 8  # FIXME <- This may be resignation. Handle it later.
 			case _:
-				raise ResultError()
+				raise ResultError(result_id)
 		self.cursor.execute(
 			"""
-            INSERT INTO chess_games(white_player, black_player, date, duration, result_id, move_count, FEN_end_position, PGN_game_sequence)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+			INSERT INTO chess_games(white_player, black_player, date, duration, result_id, move_count, FEN_end_position, PGN_game_sequence)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			""",
 			(
 				players[0],
 				players[1],
@@ -177,25 +182,33 @@ class ChessDatabase:
 
 
 class MoveError(Exception):
-    def __init__(self, message: str = "Move value is None or illegal!") -> None:
-        super().__init__(message)
+	def __init__(self, move: Move | None = None, message: str = "Move value is None or illegal! Move: ") -> None:
+		"""Common base class for all chess Move errors."""
+		self.move: Move | None = move
+		self.message: str = message
+		super().__init__(self.message, self.move)
 
 
 class ResultError(Exception):
-	def __init__(self, message: str = "Result value is not within legal range!") -> None:
-		super().__init__(message)
+	def __init__(self, result: Literal[1, 2, 3, 4, 5, 6, 7, 8] = 1, message: str = "Result value is not within legal range! Result: ") -> None:
+		"""Common base class for all Result errors."""
+		self.result: Literal[1, 2, 3, 4, 5, 6, 7, 8] = result
+		self.message: str = message
+		super().__init__(self.message, self.result)
 
 
 def get_engine() -> SimpleEngine:
-	if CPUFeature.get("OS_AVX2") or CPUFeature.get("AVX2"):
+	if "avx2" in get_cpu_info()["flags"]:
 		engine_path = r"stockfish\stockfish-windows-x86-64-avx2.exe"
+		avx = True
 	else:
 		engine_path = r"stockfish\stockfish-windows-x86-64-sse41-popcnt.exe"
+		avx = False
 
 	if not exists(engine_path):
-		zip_file: Literal["POPCNT.zip", "AVX2.zip"] = "POPCNT.zip" if not CPUFeature.get("OS_AVX2") or not CPUFeature.get("AVX2") else "AVX2.zip"
+		zip_file: Literal["POPCNT.zip", "AVX2.zip"] = "AVX2.zip" if avx else "POPCNT.zip"
 		with open(zip_file, "wb") as f:
-			f.write(requests.get(STOCKFISH_URL_AVX2 if zip_file == "AVX2.zip" else STOCKFISH_URL_POPCNT, timeout=30).content)
+			f.write(requests.get(STOCKFISH_URL_AVX2 if avx else STOCKFISH_URL_POPCNT, timeout=30).content)
 		with zipfile.ZipFile(zip_file, "r") as zip_ref:
 			zip_ref.extractall()
 	return SimpleEngine.popen_uci(engine_path)
@@ -213,8 +226,8 @@ def chess_game() -> None:
 	start_datetime: datetime = datetime.now(TIMEZONE)
 	while not board.is_game_over():
 		engine_move: Move | None = engine.play(board, Limit(time=0.0001)).move
-		if engine_move is None:
-			raise MoveError()  # <- No move found error / maybe will be handled in the future
+		if engine_move is None or engine_move not in board.legal_moves:
+			raise MoveError(engine_move)  # <- No move found error / maybe will be handled in the future
 		from_square: int = engine_move.from_square  # <- Numeric notation (0 in bottom-left corner, 63 in top-right corner)
 		to_square: int = engine_move.to_square  # <- Numeric notation (0 in bottom-left corner, 63 in top-right corner)
 		now_moving: Color = board.turn  # <- Color (True for white, False for black)
@@ -224,8 +237,8 @@ def chess_game() -> None:
 		board.push(engine_move)
 		if PLAYER:
 			user_move: Move | None = get_user_move()
-			if user_move is None:
-				raise MoveError()  # <- No move found error / maybe will be handled in the future
+			if user_move is None or user_move not in board.legal_moves:
+				raise MoveError(user_move)  # <- No move found error / maybe will be handled in the future
 			board.push(user_move)
 	engine.quit()
 	database.add_game_data(board, start_datetime, players)
