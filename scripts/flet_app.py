@@ -1,6 +1,13 @@
+from datetime import datetime, timedelta
+from enum import Enum
+from os.path import exists
+from sqlite3 import Connection, Cursor, connect
+from typing import Literal
+
 import flet
 from chess import Board, Move, svg
 from chess.engine import Limit, SimpleEngine
+from chess.pgn import Game
 from flet import (
     AppBar,
     Column,
@@ -20,44 +27,138 @@ from flet import (
     colors,
     icons,
 )
+from pytz import timezone
+from pytz.tzinfo import BaseTzInfo
+
+TIMEZONE: BaseTzInfo = timezone("Europe/Warsaw")
+
+
+class MessageType(Enum):
+    ERROR = ("[ERROR] ", colors.RED_400)
+    WARNING = ("[WARNING] ", colors.ORANGE_400)
+    INFO = ("[INFO] ", colors.GREEN_400)
+    EXCEPTION = ("[EXCEPTION] ", colors.RED_400)
+    GAME_STATUS = ("[GAME STATUS] ", colors.YELLOW_600)
+    MOVE = ("[MOVE] ", colors.GREEN_400)
 
 
 class Logger:
     def __init__(self, width: int) -> None:
         self.__log_container = flet.ListView(
             width=width,
+            clip_behavior=flet.ClipBehavior.ANTI_ALIAS,
             auto_scroll=True,
             spacing=1,
             on_scroll_interval=0,
             divider_thickness=1,
         )
 
-    def error(self, name: str, text: str | Exception) -> None:
+    def __call__(self, msg_type: MessageType, text: str | Exception) -> None:
         self.__log_container.controls.append(
-            Text(spans=[flet.TextSpan(name + " ", flet.TextStyle(weight=flet.FontWeight.BOLD)), flet.TextSpan(str(text))], color=colors.RED_400)
+            Text(spans=[flet.TextSpan(str(msg_type.value[0]), flet.TextStyle(weight=flet.FontWeight.BOLD)), flet.TextSpan(str(text))], color=msg_type.value[1]),
         )
         self.__log_container.update()
 
-    def warning(self, name: str, text: str) -> None:
-        self.__log_container.controls.append(
-            Text(spans=[flet.TextSpan(name + " ", flet.TextStyle(weight=flet.FontWeight.BOLD)), flet.TextSpan(text)], color=colors.ORANGE_400),
-        )
-        self.__log_container.update()
+    def clear(self, e: ControlEvent) -> None:
+        self.__log_container.controls = []
+        self(MessageType.WARNING, "Log cleared!")
 
-    def info(self, name: str, text: str) -> None:
-        self.__log_container.controls.append(
-            Text(spans=[flet.TextSpan(name + " ", flet.TextStyle(weight=flet.FontWeight.BOLD)), flet.TextSpan(text)], color=colors.GREY),
-        )
-        self.__log_container.update()
-
-    def message(self, name: str, text: str) -> None:
-        self.__log_container.controls.append(
-            Text(spans=[flet.TextSpan(name + " ", flet.TextStyle(weight=flet.FontWeight.BOLD)), flet.TextSpan(text)], color=colors.GREEN_400),
-        )
-        self.__log_container.update()
-
-    def get_logs(self) -> flet.ListView:
+    @property
+    def log_container(self) -> flet.ListView:
         return self.__log_container
+
+
+class ChessDatabase:
+    def __init__(self, name: str) -> None:
+        self.name: str = name
+        if not exists(self.name):
+            self.connection: Connection = connect(self.name, check_same_thread=False)
+            self.cursor: Cursor = self.connection.cursor()
+            for query in (
+                """
+                CREATE TABLE IF NOT EXISTS results(
+                    id INTEGER,
+                    name TEXT NOT NULL,
+                    CONSTRAINT results_pk PRIMARY KEY (id)
+                );""",
+                """
+                INSERT INTO results(name)
+                    VALUES  ("NO RESULT"),
+                            ("WHITE WIN"),
+                            ("BLACK WIN"),
+                            ("DRAW BY FIVEFOLD REPETITION"),
+                            ("DRAW BY STALEMATE"),
+                            ("DRAW BY FIFTY-MOVE RULE"),
+                            ("DRAW BY INSUFFICIENT MATERIAL"),
+                            ("DRAW");
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS chess_games(
+                    id INTEGER NOT NULL,
+                    white_player TEXT NOT NULL,
+                    black_player TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    duration TEXT NOT NULL,
+                    result_id INTEGER NOT NULL,
+                    move_count INTEGER NOT NULL,
+                    FEN_end_position TEXT NOT NULL,
+                    PGN_game_sequence TEXT NOT NULL,
+                    CONSTRAINT chess_games_pk PRIMARY KEY (id)
+                    CONSTRAINT results_fk FOREIGN KEY (result_id) REFERENCES results(id) ON DELETE CASCADE ON UPDATE CASCADE
+                );
+                """,
+            ):
+                self.cursor.execute(query)
+            self.connection.commit()
+        else:
+            self.connection: Connection = connect(self.name, check_same_thread=False)
+            self.cursor: Cursor = self.connection.cursor()
+
+    def close(self) -> None:
+        self.connection.close()
+
+    def __del__(self) -> None:
+        self.close()
+
+    def add_game_data(self, board: Board, start_datetime: datetime, players: tuple[str, ...] = ("Stockfish", "Stockfish")) -> None:
+        game: Game = Game().from_board(board)
+        duration: timedelta = datetime.now(TIMEZONE) - start_datetime
+        result_id: Literal[1, 2, 3, 4, 5, 6, 7, 8] = 1
+        match game.headers["Result"]:
+            case "1-0":
+                result_id = 2
+            case "0-1":
+                result_id = 3
+            case "1/2-1/2":
+                if board.is_fivefold_repetition():
+                    result_id = 4
+                elif board.is_stalemate():
+                    result_id = 5
+                elif board.is_fifty_moves():
+                    result_id = 6
+                elif board.is_insufficient_material():
+                    result_id = 7
+                else:
+                    result_id = 8  # FIXME <- This may be resignation. Handle it later.
+            case _:
+                raise ValueError(result_id)
+        self.cursor.execute(
+            """
+            INSERT INTO chess_games(white_player, black_player, date, duration, result_id, move_count, FEN_end_position, PGN_game_sequence)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                players[0],
+                players[1],
+                start_datetime.strftime("%d-%m-%Y %H:%M:%S"),
+                str(duration),
+                result_id,
+                board.fullmove_number,
+                board.fen(),
+                str(game.mainline_moves()),
+            ),
+        )
+        self.connection.commit()
 
 
 class ChessApp:
@@ -69,8 +170,9 @@ class ChessApp:
         self.__page: Page = page
         self.__page.title = "ChessApp Kawasaki"
         self.logger = Logger(self.__board_width * 2)
+        self.database = ChessDatabase("chess.db")
         self.__page.window.alignment = alignment.center
-        self.__chess_board_svg: Image = Image(src=svg.board(), width=self.__board_width, height=self.__board_height)
+        self.__chess_board_svg: Image = Image(src=svg.board(Board()), width=self.__board_width, height=self.__board_height)
         self.__page.window.title_bar_hidden = True
         self.__appbar = AppBar(
             toolbar_height=50,
@@ -123,6 +225,7 @@ class ChessApp:
                                     [
                                         TextButton("Start", on_click=self.start_game, icon=icons.PLAY_ARROW),
                                         TextButton("Stop", on_click=self.stop_game, icon=icons.STOP_SHARP),
+                                        TextButton("Clear logs", on_click=self.logger.clear, icon=icons.CLEAR_ALL),
                                     ],
                                 ),
                             ],
@@ -146,7 +249,7 @@ class ChessApp:
                 ),
                 Row(
                     [
-                        self.logger.get_logs(),
+                        self.logger.log_container,
                     ],
                     alignment=MainAxisAlignment.CENTER,
                     vertical_alignment=CrossAxisAlignment.CENTER,
@@ -163,38 +266,44 @@ class ChessApp:
         self.__page.update()
 
     def start_game(self, e: ControlEvent) -> None:
+        if self.__game_status:
+            return
         try:
-            self.logger.warning("[GAME STATUS]", "Game started!")
+            self.logger(MessageType.GAME_STATUS, "Game started!")
             self.__engine: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
             self.__game_status = True
             self.__board = Board()
             self.__chess_board_svg.src = svg.board(self.__board)
+            start_datetime: datetime = datetime.now(TIMEZONE)
             while self.__game_status and not self.__board.is_game_over():
-                engine_move: Move | None = self.__engine.play(self.__board, Limit(time=0.1)).move
+                engine_move: Move | None = self.__engine.play(self.__board, Limit(time=0.01)).move
                 if engine_move is None or engine_move not in self.__board.legal_moves:
-                    self.logger.error("[EXCEPTION]", "NO MOVE FOUND!")
+                    self.logger(MessageType.ERROR, "NO MOVE FOUND!")
                     continue
                 from_square: int = engine_move.from_square  # <- Numeric notation (0 in bottom-left corner, 63 in top-right corner)
                 to_square: int = engine_move.to_square  # <- Numeric notation (0 in bottom-left corner, 63 in top-right corner)
-                self.__board.push(engine_move)
-                self.__chess_board_svg.src = svg.board(self.__board)
-                self.logger.info("[MOVE]", "From: " + str(from_square) + " To: " + str(to_square))
-                self.__page.update()
-            self.__engine.close()
-            self.__game_status = False
+                if self.__game_status:
+                    self.__board.push(engine_move)
+                    self.__chess_board_svg.src = svg.board(self.__board)
+                    self.__page.update()
+                    self.logger(MessageType.MOVE, engine_move.uci())
+                if self.__board.is_game_over():
+                    self.database.add_game_data(self.__board, start_datetime, ("Stockfish", "Human"))
         except Exception as exception:
-            self.logger.error("[EXCEPTION]", exception)
-            self.stop_game(e)
+            self.logger(MessageType.EXCEPTION, exception)
+        self.stop_game(e)
 
     def stop_game(self, e: ControlEvent) -> None:
+        if not self.__game_status:
+            return
         self.__game_status = False
-        if hasattr(self, "__engine"):
-            self.__engine.close()
-        self.logger.warning("[GAME STATUS]", "Game stopped!")
+        self.__engine.quit()
+        self.logger(MessageType.GAME_STATUS, "Game stopped!")
         self.__page.update()
 
     def close_app(self, e: ControlEvent) -> None:
         self.stop_game(e)
+        self.database.close()
         self.__page.window.close()
 
     def minimize_app(self, e: ControlEvent) -> None:
