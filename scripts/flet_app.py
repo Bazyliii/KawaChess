@@ -14,6 +14,7 @@ from flet import (
     Container,
     ControlEvent,
     CrossAxisAlignment,
+    FontWeight,
     IconButton,
     Image,
     MainAxisAlignment,
@@ -21,6 +22,8 @@ from flet import (
     Row,
     Text,
     TextButton,
+    TextSpan,
+    TextStyle,
     WindowDragArea,
     alignment,
     app,
@@ -55,11 +58,18 @@ class Logger:
 
     def __call__(self, msg_type: MessageType, text: str | Exception) -> None:
         self.__log_container.controls.append(
-            Text(spans=[flet.TextSpan(str(msg_type.value[0]), flet.TextStyle(weight=flet.FontWeight.BOLD)), flet.TextSpan(str(text))], color=msg_type.value[1]),
+            Text(
+                spans=[
+                    TextSpan(datetime.now(TIMEZONE).strftime("%H:%M:%S "), TextStyle(color=colors.WHITE38)),
+                    TextSpan(msg_type.value[0], TextStyle(weight=FontWeight.BOLD)),
+                    TextSpan(str(text)),
+                ],
+                color=msg_type.value[1],
+            ),
         )
         self.__log_container.update()
 
-    def clear(self, e: ControlEvent) -> None:
+    def clear(self, e: ControlEvent) -> None:  # noqa: ARG002
         self.__log_container.controls = []
         self(MessageType.WARNING, "Log cleared!")
 
@@ -117,31 +127,30 @@ class ChessDatabase:
     def close(self) -> None:
         self.connection.close()
 
-    def __del__(self) -> None:
-        self.close()
+    @staticmethod
+    def get_game_results(board: Board) -> Literal[1, 2, 3, 4, 5, 6, 7, 8]:
+        match Game().from_board(board).headers["Result"]:
+            case "1-0":
+                result = 2
+            case "0-1":
+                result = 3
+            case "1/2-1/2":
+                if board.is_fivefold_repetition():
+                    result = 4
+                if board.is_stalemate():
+                    result = 5
+                if board.is_fifty_moves():
+                    result = 6
+                if board.is_insufficient_material():
+                    result = 7
+                result = 8
+            case _:
+                result = 1
+        return result
 
     def add_game_data(self, board: Board, start_datetime: datetime, players: tuple[str, ...] = ("Stockfish", "Stockfish")) -> None:
         game: Game = Game().from_board(board)
         duration: timedelta = datetime.now(TIMEZONE) - start_datetime
-        result_id: Literal[1, 2, 3, 4, 5, 6, 7, 8] = 1
-        match game.headers["Result"]:
-            case "1-0":
-                result_id = 2
-            case "0-1":
-                result_id = 3
-            case "1/2-1/2":
-                if board.is_fivefold_repetition():
-                    result_id = 4
-                elif board.is_stalemate():
-                    result_id = 5
-                elif board.is_fifty_moves():
-                    result_id = 6
-                elif board.is_insufficient_material():
-                    result_id = 7
-                else:
-                    result_id = 8  # FIXME <- This may be resignation. Handle it later.
-            case _:
-                raise ValueError(result_id)
         self.cursor.execute(
             """
             INSERT INTO chess_games(white_player, black_player, date, duration, result_id, move_count, FEN_end_position, PGN_game_sequence)
@@ -152,7 +161,7 @@ class ChessDatabase:
                 players[1],
                 start_datetime.strftime("%d-%m-%Y %H:%M:%S"),
                 str(duration),
-                result_id,
+                self.get_game_results(board),
                 board.fullmove_number,
                 board.fen(),
                 str(game.mainline_moves()),
@@ -268,32 +277,30 @@ class ChessApp:
     def start_game(self, e: ControlEvent) -> None:
         if self.__game_status:
             return
-        try:
-            self.logger(MessageType.GAME_STATUS, "Game started!")
-            self.__engine: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
-            self.__game_status = True
-            self.__board = Board()
-            self.__chess_board_svg.src = svg.board(self.__board)
-            start_datetime: datetime = datetime.now(TIMEZONE)
-            while self.__game_status and not self.__board.is_game_over():
-                engine_move: Move | None = self.__engine.play(self.__board, Limit(time=0.01)).move
-                if engine_move is None or engine_move not in self.__board.legal_moves:
-                    self.logger(MessageType.ERROR, "NO MOVE FOUND!")
-                    continue
-                from_square: int = engine_move.from_square  # <- Numeric notation (0 in bottom-left corner, 63 in top-right corner)
-                to_square: int = engine_move.to_square  # <- Numeric notation (0 in bottom-left corner, 63 in top-right corner)
-                if self.__game_status:
-                    self.__board.push(engine_move)
-                    self.__chess_board_svg.src = svg.board(self.__board)
-                    self.__page.update()
-                    self.logger(MessageType.MOVE, engine_move.uci())
-                if self.__board.is_game_over():
-                    self.database.add_game_data(self.__board, start_datetime, ("Stockfish", "Human"))
-        except Exception as exception:
-            self.logger(MessageType.EXCEPTION, exception)
+        start_datetime: datetime = datetime.now(TIMEZONE)
+        self.logger(MessageType.GAME_STATUS, "Game started!")
+        self.__game_status = True
+        self.__engine: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
+        self.__board = Board()
+        self.__chess_board_svg.src = svg.board(self.__board)
+        while self.__game_status and not self.__board.is_game_over():
+            engine_move: Move | None = self.__engine.play(self.__board, Limit(time=0.01)).move
+            if engine_move is None or engine_move not in self.__board.legal_moves:
+                self.logger(MessageType.ERROR, "No move found!")
+                continue
+            from_square: int = engine_move.from_square  # <- Numeric notation (0 in bottom-left corner, 63 in top-right corner)
+            to_square: int = engine_move.to_square  # <- Numeric notation (0 in bottom-left corner, 63 in top-right corner)
+            if self.__game_status:
+                self.__board.push(engine_move)
+                self.__chess_board_svg.src = svg.board(self.__board)
+                self.__page.update()
+                self.logger(MessageType.MOVE, f"Engine: {engine_move.uci()}")
         self.stop_game(e)
+        if self.__board.is_game_over():
+            self.database.add_game_data(self.__board, start_datetime, ("Stockfish", "Human"))
+            self.logger(MessageType.INFO, "Game data saved to database!")
 
-    def stop_game(self, e: ControlEvent) -> None:
+    def stop_game(self, e: ControlEvent) -> None:  # noqa: ARG002
         if not self.__game_status:
             return
         self.__game_status = False
@@ -306,7 +313,7 @@ class ChessApp:
         self.database.close()
         self.__page.window.close()
 
-    def minimize_app(self, e: ControlEvent) -> None:
+    def minimize_app(self, e: ControlEvent) -> None:  # noqa: ARG002
         self.__page.window.minimized = True
         self.__page.update()
 
