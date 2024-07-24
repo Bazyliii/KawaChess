@@ -177,6 +177,14 @@ class ChessApp:
         self.__board_width: int = 500
         self.__app_padding: int = 20
         self.__page: Page = page
+        # TODO: Theming based on system accent color
+        self.__page.theme = flet.Theme(
+            font_family="Roboto",
+            tabs_theme=flet.TabsTheme(
+                indicator_color=colors.RED_300,
+                overlay_color=colors.RED_900,
+            ),
+        )
         self.__page.title = "ChessApp Kawasaki"
         self.logger = Logger(self.__board_width * 2)
         self.database = ChessDatabase("chess.db")
@@ -227,6 +235,18 @@ class ChessApp:
         )
         self.__layout = Column(
             [
+                # TODO: Separate content to different tabs
+                flet.Tabs(
+                    tabs=[
+                        flet.Tab(text="Game", content=Container()),
+                        flet.Tab(text="Settings", content=Container()),
+                        flet.Tab(text="Logs", content=Container()),
+                        flet.Tab(text="Database", content=Container()),
+                        flet.Tab(text="About", content=Container()),
+                    ],
+                    expand=True,
+                    tab_alignment=flet.TabAlignment.CENTER,
+                ),
                 Row(
                     [
                         Column(
@@ -302,7 +322,7 @@ class ChessApp:
             self.database.add_game_data(self.__board, start_datetime, ("Stockfish", "Human"))
             self.logger(MessageType.INFO, "Game data saved to database!")
 
-    def stop_game(self) -> None:  
+    def stop_game(self) -> None:
         if not self.__game_status:
             return
         self.__game_status = False
