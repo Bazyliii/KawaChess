@@ -181,41 +181,43 @@ class ChessApp:
         self.logger = Logger(self.__board_width * 2)
         self.database = ChessDatabase("chess.db")
         self.__page.window.alignment = alignment.center
+        self.__maximize_button: IconButton = IconButton(
+            icons.CHECK_BOX_OUTLINE_BLANK,
+            on_click=lambda _: self.__maximize(),
+            icon_size=15,
+            selected=False,
+            selected_icon=icons.COPY_OUTLINED,
+            hover_color=colors.BLUE_400,
+            style=flet.ButtonStyle(shape=flet.RoundedRectangleBorder(radius=5)),
+        )
         self.__chess_board_svg: Image = Image(src=svg.board(Board()), width=self.__board_width, height=self.__board_height)
         self.__page.window.title_bar_hidden = True
+        self.__page.window.on_event = self.__window_event
         self.__appbar = AppBar(
-            toolbar_height=50,
+            toolbar_height=45,
             title=WindowDragArea(
                 Row(
                     [
-                        Text(self.__page.title, color="white"),
+                        Text(self.__page.title, color="white", overflow=flet.TextOverflow.ELLIPSIS, expand=True),
                     ],
                 ),
                 expand=True,
-                maximizable=False,
+                maximizable=True,
             ),
             bgcolor=colors.GREY_900,
             title_spacing=self.__app_padding,
             actions=[
                 IconButton(
                     icons.MINIMIZE,
-                    on_click=self.minimize_app,
+                    on_click=lambda _: self.__minimize(),
                     icon_size=15,
                     hover_color=colors.GREEN_400,
                     style=flet.ButtonStyle(shape=flet.RoundedRectangleBorder(radius=5)),
                 ),
-                IconButton(
-                    icons.CHECK_BOX_OUTLINE_BLANK,
-                    on_click=self.maximize_app,
-                    icon_size=15,
-                    selected=False,
-                    selected_icon=icons.COPY_OUTLINED,
-                    hover_color=colors.BLUE_400,
-                    style=flet.ButtonStyle(shape=flet.RoundedRectangleBorder(radius=5)),
-                ),
+                self.__maximize_button,
                 IconButton(
                     icons.CLOSE_SHARP,
-                    on_click=self.close_app,
+                    on_click=lambda _: self.__close(),
                     icon_size=15,
                     hover_color=colors.RED_400,
                     style=flet.ButtonStyle(shape=flet.RoundedRectangleBorder(radius=5)),
@@ -232,8 +234,8 @@ class ChessApp:
                                 self.__chess_board_svg,
                                 Row(
                                     [
-                                        TextButton("Start", on_click=self.start_game, icon=icons.PLAY_ARROW),
-                                        TextButton("Stop", on_click=self.stop_game, icon=icons.STOP_SHARP),
+                                        TextButton("Start", on_click=lambda _: self.start_game(), icon=icons.PLAY_ARROW),
+                                        TextButton("Stop", on_click=lambda _: self.stop_game(), icon=icons.STOP_SHARP),
                                         TextButton("Clear logs", on_click=self.logger.clear, icon=icons.CLEAR_ALL),
                                     ],
                                 ),
@@ -274,7 +276,7 @@ class ChessApp:
         self.__page.add(self.__layout)
         self.__page.update()
 
-    def start_game(self, e: ControlEvent) -> None:
+    def start_game(self) -> None:
         if self.__game_status:
             return
         start_datetime: datetime = datetime.now(TIMEZONE)
@@ -295,12 +297,12 @@ class ChessApp:
                 self.__chess_board_svg.src = svg.board(self.__board)
                 self.__page.update()
                 self.logger(MessageType.MOVE, f"Engine: {engine_move.uci()}")
-        self.stop_game(e)
+        self.stop_game()
         if self.__board.is_game_over():
             self.database.add_game_data(self.__board, start_datetime, ("Stockfish", "Human"))
             self.logger(MessageType.INFO, "Game data saved to database!")
 
-    def stop_game(self, e: ControlEvent) -> None:  # noqa: ARG002
+    def stop_game(self) -> None:  
         if not self.__game_status:
             return
         self.__game_status = False
@@ -308,21 +310,23 @@ class ChessApp:
         self.logger(MessageType.GAME_STATUS, "Game stopped!")
         self.__page.update()
 
-    def close_app(self, e: ControlEvent) -> None:
-        self.stop_game(e)
+    def __close(self) -> None:
+        self.stop_game()
         self.database.close()
         self.__page.window.close()
 
-    def minimize_app(self, e: ControlEvent) -> None:  # noqa: ARG002
+    def __minimize(self) -> None:
         self.__page.window.minimized = True
         self.__page.update()
 
-    def maximize_app(self, e: ControlEvent) -> None:
-        if self.__page.window.maximized:
-            self.__page.window.maximized = e.control.selected = False
-        else:
-            self.__page.window.maximized = e.control.selected = True
+    def __maximize(self) -> None:
+        self.__page.window.maximized = not self.__page.window.maximized
         self.__page.update()
+
+    def __window_event(self, e: ControlEvent) -> None:
+        if e.data in {"unmaximize", "maximize"}:
+            self.__maximize_button.selected = self.__page.window.maximized
+            self.__page.update()
 
 
 if __name__ == "__main__":
