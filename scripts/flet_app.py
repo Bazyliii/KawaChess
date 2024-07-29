@@ -1,9 +1,12 @@
+import base64
 from datetime import datetime, timedelta
 from enum import Enum
 from os.path import exists
 from sqlite3 import Connection, Cursor, connect
-from typing import Literal
+from time import sleep
+from typing import TYPE_CHECKING, Literal
 
+import cv2
 import flet
 from chess import Board, Move, svg
 from chess.engine import Limit, SimpleEngine
@@ -32,6 +35,9 @@ from flet import (
 )
 from pytz import timezone
 from pytz.tzinfo import BaseTzInfo
+
+if TYPE_CHECKING:
+    from numpy import ndarray
 
 TIMEZONE: BaseTzInfo = timezone("Europe/Warsaw")
 
@@ -170,6 +176,29 @@ class ChessDatabase:
         self.connection.commit()
 
 
+class OpenCVCapture(Image):
+    def __init__(self, height: int, width: int) -> None:
+        super().__init__()
+        self.capture = cv2.VideoCapture(r"C:\Users\jaros\Downloads\Prezentacja1.mp4")
+        self.__height: int = height
+        self.__width: int = width
+        self.__resize: tuple[int, int] = (self.__width, self.__height)
+
+    def did_mount(self) -> None:
+        while True:
+            frame: ndarray = self.capture.read()[1]
+            frame = cv2.resize(frame, self.__resize)
+            self.src_base64 = base64.b64encode(cv2.imencode(".png", frame)[1]).decode("utf-8")
+            self.update()
+            sleep(self.capture.get(cv2.CAP_PROP_FPS) / 1000)
+
+    def build(self) -> None:
+        self.img = flet.Image(border_radius=flet.border_radius.all(10), height=self.__height, width=self.__width)
+
+    def __del__(self) -> None:
+        self.capture.release()
+
+
 class ChessApp:
     def __init__(self, page: Page) -> None:
         self.__game_status: bool = False
@@ -265,12 +294,12 @@ class ChessApp:
                         ),
                         Container(width=self.__app_padding),
                         Column(
-                            [
-                                Image(
-                                    src="https://upload.wikimedia.org/wikipedia/commons/3/32/OpenCV_Logo_with_text_svg_version.svg",
-                                    width=self.__board_width,
-                                    height=self.__board_height,
-                                ),
+                            [OpenCVCapture(self.__board_width, self.__board_height),
+                                # Image(
+                                #     src="https://upload.wikimedia.org/wikipedia/commons/3/32/OpenCV_Logo_with_text_svg_version.svg",
+                                #     width=self.__board_width,
+                                #     height=self.__board_height,
+                                # ),
                             ],
                             alignment=MainAxisAlignment.CENTER,
                             horizontal_alignment=CrossAxisAlignment.CENTER,
@@ -351,3 +380,4 @@ class ChessApp:
 
 if __name__ == "__main__":
     app(target=ChessApp)
+    cv2.destroyAllWindows()

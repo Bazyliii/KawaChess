@@ -14,7 +14,8 @@ dependencies = [
     "chess >= 1.10.0",
     "py-cpuinfo >= 9.0.0",
     "pytz >= 2024.1",
-    "flet >= 0.23.2"
+    "flet >= 0.23.2",
+    "opencv-python >= 4.10.0.84"
 ]
 
 [tool.ruff]
