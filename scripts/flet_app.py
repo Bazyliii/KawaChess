@@ -193,7 +193,7 @@ class OpenCVCapture(Image):
             sleep(self.capture.get(cv2.CAP_PROP_FPS) / 1000)
 
     def build(self) -> None:
-        self.img = flet.Image(border_radius=flet.border_radius.all(10), height=self.__height, width=self.__width)
+        self.img = flet.Image(height=self.__height, width=self.__width)
 
     def __del__(self) -> None:
         self.capture.release()
@@ -214,7 +214,7 @@ class ChessApp:
                 overlay_color=colors.RED_900,
             ),
         )
-        self.__page.title = "ChessApp Kawasaki"
+        self.__page.title = "ChessApp for Kawasaki"
         self.logger = Logger(self.__board_width * 2)
         self.database = ChessDatabase("chess.db")
         self.__page.window.alignment = alignment.center
@@ -262,59 +262,70 @@ class ChessApp:
                 Container(width=20),
             ],
         )
-        self.__layout = Column(
+        self.__about_tab = Container(
+            Column(
+                controls=[Text(self.__page.title, size=30, weight=FontWeight.BOLD), Text("Version: v1.0.0", size=20), Text("Author: Jarosław Wierzbowski")],
+                alignment=MainAxisAlignment.CENTER,
+                horizontal_alignment=CrossAxisAlignment.CENTER,
+            ),
+            alignment=alignment.center,
+        )
+        self.__game_tab = Container(
+            Column(
+                [
+                    Row(
+                        [
+                            Column(
+                                [
+                                    self.__chess_board_svg,
+                                    Row(
+                                        [
+                                            TextButton("Start", on_click=lambda _: self.start_game(), icon=icons.PLAY_ARROW),
+                                            TextButton("Stop", on_click=lambda _: self.stop_game(), icon=icons.STOP_SHARP),
+                                            TextButton("Clear logs", on_click=self.logger.clear, icon=icons.CLEAR_ALL),
+                                        ],
+                                    ),
+                                ],
+                                alignment=MainAxisAlignment.CENTER,
+                                horizontal_alignment=CrossAxisAlignment.CENTER,
+                            ),
+                            Container(width=self.__app_padding),
+                            Column(
+                                [
+                                    OpenCVCapture(self.__board_width, self.__board_height),
+                                ],
+                                alignment=MainAxisAlignment.CENTER,
+                                horizontal_alignment=CrossAxisAlignment.CENTER,
+                            ),
+                        ],
+                        alignment=MainAxisAlignment.CENTER,
+                    ),
+                    Row(
+                        [
+                            self.logger.log_container,
+                        ],
+                        alignment=MainAxisAlignment.CENTER,
+                        vertical_alignment=CrossAxisAlignment.CENTER,
+                        expand=True,
+                        spacing=20,
+                    ),
+                ],
+            ),
+        )
+        self.__tabs_layout = Column(
             [
                 # TODO: Separate content to different tabs
                 flet.Tabs(
                     tabs=[
-                        flet.Tab(text="Game", content=Container()),
+                        flet.Tab(text="Game", content=Container(self.__game_tab)),
                         flet.Tab(text="Settings", content=Container()),
                         flet.Tab(text="Logs", content=Container()),
                         flet.Tab(text="Database", content=Container()),
-                        flet.Tab(text="About", content=Container()),
+                        flet.Tab(text="About", content=Container(self.__about_tab)),
                     ],
                     expand=True,
                     tab_alignment=flet.TabAlignment.CENTER,
-                ),
-                Row(
-                    [
-                        Column(
-                            [
-                                self.__chess_board_svg,
-                                Row(
-                                    [
-                                        TextButton("Start", on_click=lambda _: self.start_game(), icon=icons.PLAY_ARROW),
-                                        TextButton("Stop", on_click=lambda _: self.stop_game(), icon=icons.STOP_SHARP),
-                                        TextButton("Clear logs", on_click=self.logger.clear, icon=icons.CLEAR_ALL),
-                                    ],
-                                ),
-                            ],
-                            alignment=MainAxisAlignment.CENTER,
-                            horizontal_alignment=CrossAxisAlignment.CENTER,
-                        ),
-                        Container(width=self.__app_padding),
-                        Column(
-                            [OpenCVCapture(self.__board_width, self.__board_height),
-                                # Image(
-                                #     src="https://upload.wikimedia.org/wikipedia/commons/3/32/OpenCV_Logo_with_text_svg_version.svg",
-                                #     width=self.__board_width,
-                                #     height=self.__board_height,
-                                # ),
-                            ],
-                            alignment=MainAxisAlignment.CENTER,
-                            horizontal_alignment=CrossAxisAlignment.CENTER,
-                        ),
-                    ],
-                    alignment=MainAxisAlignment.CENTER,
-                ),
-                Row(
-                    [
-                        self.logger.log_container,
-                    ],
-                    alignment=MainAxisAlignment.CENTER,
-                    vertical_alignment=CrossAxisAlignment.CENTER,
-                    expand=True,
-                    spacing=20,
+                    animation_duration=0,
                 ),
             ],
             expand=True,
@@ -322,7 +333,7 @@ class ChessApp:
             horizontal_alignment=CrossAxisAlignment.CENTER,
         )
         self.__page.add(self.__appbar)
-        self.__page.add(self.__layout)
+        self.__page.add(self.__tabs_layout)
         self.__page.update()
 
     def start_game(self) -> None:
