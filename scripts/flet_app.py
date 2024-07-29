@@ -55,10 +55,9 @@ class Logger:
     def __init__(self, width: int) -> None:
         self.__log_container = flet.ListView(
             width=width,
-            clip_behavior=flet.ClipBehavior.ANTI_ALIAS,
+            clip_behavior=flet.ClipBehavior.NONE,
             auto_scroll=True,
             spacing=1,
-            on_scroll_interval=0,
             divider_thickness=1,
         )
 
@@ -270,6 +269,7 @@ class ChessApp:
             ),
             alignment=alignment.center,
         )
+        self.__logs_tab: flet.ListView = self.logger.log_container
         self.__game_tab = Container(
             Column(
                 [
@@ -319,7 +319,7 @@ class ChessApp:
                     tabs=[
                         flet.Tab(text="Game", content=Container(self.__game_tab)),
                         flet.Tab(text="Settings", content=Container()),
-                        flet.Tab(text="Logs", content=Container()),
+                        flet.Tab(text="Logs", content=Container(self.__logs_tab)),
                         flet.Tab(text="Database", content=Container()),
                         flet.Tab(text="About", content=Container(self.__about_tab)),
                     ],
@@ -343,10 +343,15 @@ class ChessApp:
         self.logger(MessageType.GAME_STATUS, "Game started!")
         self.__game_status = True
         self.__engine: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
+        self.__engine.configure({"UCI_LimitStrength": "true", "UCI_Elo": "1320", "Threads": "4", "Hash": "2048"})
+        
+        self.__engine2: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
+        self.__engine2.configure({"UCI_LimitStrength": "true", "UCI_Elo": "3190", "Threads": "4", "Hash": "2048"})
+        
         self.__board = Board()
         self.__chess_board_svg.src = svg.board(self.__board)
         while self.__game_status and not self.__board.is_game_over():
-            engine_move: Move | None = self.__engine.play(self.__board, Limit(time=0.01)).move
+            engine_move: Move | None = self.__engine.play(self.__board, Limit(time=0.1)).move
             if engine_move is None or engine_move not in self.__board.legal_moves:
                 self.logger(MessageType.ERROR, "No move found!")
                 continue
@@ -357,6 +362,14 @@ class ChessApp:
                 self.__chess_board_svg.src = svg.board(self.__board)
                 self.__page.update()
                 self.logger(MessageType.MOVE, f"Engine: {engine_move.uci()}")
+            engine_move_2: Move | None = self.__engine2.play(self.__board, Limit(time=0.1)).move
+            if engine_move_2 is None or engine_move_2 not in self.__board.legal_moves:
+                self.logger(MessageType.ERROR, "No move found!")
+                continue
+            self.__board.push(engine_move_2)
+            self.__chess_board_svg.src = svg.board(self.__board)
+            self.__page.update()
+            self.logger(MessageType.MOVE, f"Engine: {engine_move_2.uci()}")
         self.stop_game()
         if self.__board.is_game_over():
             self.database.add_game_data(self.__board, start_datetime, ("Stockfish", "Human"))
@@ -367,6 +380,7 @@ class ChessApp:
             return
         self.__game_status = False
         self.__engine.quit()
+        self.__engine2.quit()
         self.logger(MessageType.GAME_STATUS, "Game stopped!")
         self.__page.update()
 
