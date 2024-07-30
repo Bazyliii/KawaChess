@@ -13,6 +13,8 @@ from chess.engine import Limit, SimpleEngine
 from chess.pgn import Game
 from flet import (
     AppBar,
+    ButtonStyle,
+    ClipBehavior,
     Column,
     Container,
     ControlEvent,
@@ -20,11 +22,17 @@ from flet import (
     FontWeight,
     IconButton,
     Image,
+    ListView,
     MainAxisAlignment,
     Page,
+    RoundedRectangleBorder,
     Row,
+    Tab,
+    TabAlignment,
+    Tabs,
     Text,
     TextButton,
+    TextOverflow,
     TextSpan,
     TextStyle,
     WindowDragArea,
@@ -53,9 +61,9 @@ class MessageType(Enum):
 
 class Logger:
     def __init__(self, width: int) -> None:
-        self.__log_container = flet.ListView(
+        self.__log_container = ListView(
             width=width,
-            clip_behavior=flet.ClipBehavior.NONE,
+            clip_behavior=ClipBehavior.NONE,
             auto_scroll=True,
             spacing=1,
             divider_thickness=1,
@@ -74,12 +82,12 @@ class Logger:
         )
         self.__log_container.update()
 
-    def clear(self, e: ControlEvent) -> None:  # noqa: ARG002
+    def clear(self) -> None:
         self.__log_container.controls = []
         self(MessageType.WARNING, "Log cleared!")
 
     @property
-    def log_container(self) -> flet.ListView:
+    def log_container(self) -> ListView:
         return self.__log_container
 
 
@@ -115,6 +123,7 @@ class ChessDatabase:
                     date TEXT NOT NULL,
                     duration TEXT NOT NULL,
                     result_id INTEGER NOT NULL,
+                    stockfish_skill_level INTEGER NOT NULL,
                     move_count INTEGER NOT NULL,
                     FEN_end_position TEXT NOT NULL,
                     PGN_game_sequence TEXT NOT NULL,
@@ -153,13 +162,13 @@ class ChessDatabase:
                 result = 1
         return result
 
-    def add_game_data(self, board: Board, start_datetime: datetime, players: tuple[str, ...] = ("Stockfish", "Stockfish")) -> None:
+    def add_game_data(self, board: Board, start_datetime: datetime, stockfish_skill_level: int, players: tuple[str, ...] = ("Stockfish", "Stockfish")) -> None:
         game: Game = Game().from_board(board)
         duration: timedelta = datetime.now(TIMEZONE) - start_datetime
         self.cursor.execute(
             """
-            INSERT INTO chess_games(white_player, black_player, date, duration, result_id, move_count, FEN_end_position, PGN_game_sequence)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO chess_games(white_player, black_player, date, duration, result_id,stockfish_skill_level ,move_count, FEN_end_position, PGN_game_sequence)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 players[0],
@@ -167,6 +176,7 @@ class ChessDatabase:
                 start_datetime.strftime("%d-%m-%Y %H:%M:%S"),
                 str(duration),
                 self.get_game_results(board),
+                stockfish_skill_level,
                 board.fullmove_number,
                 board.fen(),
                 str(game.mainline_moves()),
@@ -192,7 +202,7 @@ class OpenCVCapture(Image):
             sleep(self.capture.get(cv2.CAP_PROP_FPS) / 1000)
 
     def build(self) -> None:
-        self.img = flet.Image(height=self.__height, width=self.__width)
+        self.img = Image(height=self.__height, width=self.__width)
 
     def __del__(self) -> None:
         self.capture.release()
@@ -201,18 +211,19 @@ class OpenCVCapture(Image):
 class ChessApp:
     def __init__(self, page: Page) -> None:
         self.__game_status: bool = False
+        self.__stockfish_skill_level: int = 20
         self.__board_height: int = 500
         self.__board_width: int = 500
         self.__app_padding: int = 20
         self.__page: Page = page
         # TODO: Theming based on system accent color
-        self.__page.theme = flet.Theme(
-            font_family="Roboto",
-            tabs_theme=flet.TabsTheme(
-                indicator_color=colors.RED_300,
-                overlay_color=colors.RED_900,
-            ),
-        )
+        # self.__page.theme = flet.Theme(
+        #     font_family="Roboto",
+        #     tabs_theme=flet.TabsTheme(
+        #         indicator_color=colors.RED_300,
+        #         overlay_color=colors.RED_900,
+        #     ),
+        # )
         self.__page.title = "ChessApp for Kawasaki"
         self.logger = Logger(self.__board_width * 2)
         self.database = ChessDatabase("chess.db")
@@ -224,7 +235,7 @@ class ChessApp:
             selected=False,
             selected_icon=icons.COPY_OUTLINED,
             hover_color=colors.BLUE_400,
-            style=flet.ButtonStyle(shape=flet.RoundedRectangleBorder(radius=5)),
+            style=ButtonStyle(shape=RoundedRectangleBorder(radius=5)),
         )
         self.__chess_board_svg: Image = Image(src=svg.board(Board()), width=self.__board_width, height=self.__board_height)
         self.__page.window.title_bar_hidden = True
@@ -234,7 +245,7 @@ class ChessApp:
             title=WindowDragArea(
                 Row(
                     [
-                        Text(self.__page.title, color="white", overflow=flet.TextOverflow.ELLIPSIS, expand=True),
+                        Text(self.__page.title, color="white", overflow=TextOverflow.ELLIPSIS, expand=True),
                     ],
                 ),
                 expand=True,
@@ -248,7 +259,7 @@ class ChessApp:
                     on_click=lambda _: self.__minimize(),
                     icon_size=15,
                     hover_color=colors.GREEN_400,
-                    style=flet.ButtonStyle(shape=flet.RoundedRectangleBorder(radius=5)),
+                    style=ButtonStyle(shape=RoundedRectangleBorder(radius=5)),
                 ),
                 self.__maximize_button,
                 IconButton(
@@ -256,11 +267,12 @@ class ChessApp:
                     on_click=lambda _: self.__close(),
                     icon_size=15,
                     hover_color=colors.RED_400,
-                    style=flet.ButtonStyle(shape=flet.RoundedRectangleBorder(radius=5)),
+                    style=ButtonStyle(shape=RoundedRectangleBorder(radius=5)),
                 ),
                 Container(width=20),
             ],
         )
+        self.__settings_tab = Container()
         self.__about_tab = Container(
             Column(
                 controls=[Text(self.__page.title, size=30, weight=FontWeight.BOLD), Text("Version: v1.0.0", size=20), Text("Author: Jarosław Wierzbowski")],
@@ -269,7 +281,7 @@ class ChessApp:
             ),
             alignment=alignment.center,
         )
-        self.__logs_tab: flet.ListView = self.logger.log_container
+        self.__logs_tab: ListView = self.logger.log_container
         self.__game_tab = Container(
             Column(
                 [
@@ -282,7 +294,7 @@ class ChessApp:
                                         [
                                             TextButton("Start", on_click=lambda _: self.start_game(), icon=icons.PLAY_ARROW),
                                             TextButton("Stop", on_click=lambda _: self.stop_game(), icon=icons.STOP_SHARP),
-                                            TextButton("Clear logs", on_click=self.logger.clear, icon=icons.CLEAR_ALL),
+                                            TextButton("Clear logs", on_click=lambda _: self.logger.clear(), icon=icons.CLEAR_ALL),
                                         ],
                                     ),
                                 ],
@@ -315,16 +327,16 @@ class ChessApp:
         self.__tabs_layout = Column(
             [
                 # TODO: Separate content to different tabs
-                flet.Tabs(
+                Tabs(
                     tabs=[
-                        flet.Tab(text="Game", content=Container(self.__game_tab)),
-                        flet.Tab(text="Settings", content=Container()),
-                        flet.Tab(text="Logs", content=Container(self.__logs_tab)),
-                        flet.Tab(text="Database", content=Container()),
-                        flet.Tab(text="About", content=Container(self.__about_tab)),
+                        Tab(text="Game", content=self.__game_tab),
+                        Tab(text="Settings", content=self.__settings_tab),
+                        Tab(text="Logs", content=self.__logs_tab),
+                        Tab(text="Database", content=Container()),
+                        Tab(text="About", content=self.__about_tab),
                     ],
                     expand=True,
-                    tab_alignment=flet.TabAlignment.CENTER,
+                    tab_alignment=TabAlignment.CENTER,
                     animation_duration=0,
                 ),
             ],
@@ -332,8 +344,7 @@ class ChessApp:
             alignment=MainAxisAlignment.CENTER,
             horizontal_alignment=CrossAxisAlignment.CENTER,
         )
-        self.__page.add(self.__appbar)
-        self.__page.add(self.__tabs_layout)
+        self.__page.add(self.__appbar, self.__tabs_layout)
         self.__page.update()
 
     def start_game(self) -> None:
@@ -343,11 +354,8 @@ class ChessApp:
         self.logger(MessageType.GAME_STATUS, "Game started!")
         self.__game_status = True
         self.__engine: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
-        self.__engine.configure({"UCI_LimitStrength": "true", "UCI_Elo": "1320", "Threads": "4", "Hash": "2048"})
-        
-        self.__engine2: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
-        self.__engine2.configure({"UCI_LimitStrength": "true", "UCI_Elo": "3190", "Threads": "4", "Hash": "2048"})
-        
+        self.__engine.configure({"Threads": "4", "Hash": "2048", "Skill Level": self.__stockfish_skill_level})
+        # "UCI_LimitStrength": "true", "UCI_Elo": "1320",
         self.__board = Board()
         self.__chess_board_svg.src = svg.board(self.__board)
         while self.__game_status and not self.__board.is_game_over():
@@ -362,17 +370,9 @@ class ChessApp:
                 self.__chess_board_svg.src = svg.board(self.__board)
                 self.__page.update()
                 self.logger(MessageType.MOVE, f"Engine: {engine_move.uci()}")
-            engine_move_2: Move | None = self.__engine2.play(self.__board, Limit(time=0.1)).move
-            if engine_move_2 is None or engine_move_2 not in self.__board.legal_moves:
-                self.logger(MessageType.ERROR, "No move found!")
-                continue
-            self.__board.push(engine_move_2)
-            self.__chess_board_svg.src = svg.board(self.__board)
-            self.__page.update()
-            self.logger(MessageType.MOVE, f"Engine: {engine_move_2.uci()}")
         self.stop_game()
         if self.__board.is_game_over():
-            self.database.add_game_data(self.__board, start_datetime, ("Stockfish", "Human"))
+            self.database.add_game_data(self.__board, start_datetime, self.__stockfish_skill_level, ("Stockfish", "Human"))
             self.logger(MessageType.INFO, "Game data saved to database!")
 
     def stop_game(self) -> None:
@@ -380,7 +380,6 @@ class ChessApp:
             return
         self.__game_status = False
         self.__engine.quit()
-        self.__engine2.quit()
         self.logger(MessageType.GAME_STATUS, "Game stopped!")
         self.__page.update()
 
