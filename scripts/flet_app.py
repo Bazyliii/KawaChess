@@ -83,7 +83,7 @@ class Logger:
         self.__log_container.update()
 
     def clear(self) -> None:
-        self.__log_container.controls = []
+        self.__log_container.controls.clear()
         self(MessageType.WARNING, "Log cleared!")
 
     @property
@@ -208,10 +208,74 @@ class OpenCVCapture(Image):
         self.capture.release()
 
 
-class ChessApp:
-    def __init__(self, page: Page) -> None:
+class GameLogic:
+    def __init__(self, board_width: int, board_height: int, logger: Logger, database: ChessDatabase, page: Page) -> None:
+        self.logger: Logger = logger
+        self.database: ChessDatabase = database
+        self.__page: Page = page
         self.__game_status: bool = False
         self.__stockfish_skill_level: int = 20
+        self.__chess_board_svg: Image = Image(src=svg.board(Board()), width=board_width, height=board_height)
+
+    @property
+    def chess_board_svg(self) -> Image:
+        return self.__chess_board_svg
+
+    @property
+    def game_status(self) -> bool:
+        return self.__game_status
+
+    @game_status.setter
+    def game_status(self, value: bool) -> None:
+        self.__game_status = value
+
+    @property
+    def stockfish_skill_level(self) -> int:
+        return self.__stockfish_skill_level
+
+    @stockfish_skill_level.setter
+    def stockfish_skill_level(self, value: int) -> None:
+        self.__stockfish_skill_level = value
+
+    def start_game(self) -> None:
+        if self.__game_status:
+            return
+        start_datetime: datetime = datetime.now(TIMEZONE)
+        self.logger(MessageType.GAME_STATUS, "Game started!")
+        self.__game_status = True
+        self.__engine: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
+        self.__engine.configure({"Threads": "4", "Hash": "2048", "Skill Level": self.__stockfish_skill_level})
+        # "UCI_LimitStrength": "true", "UCI_Elo": "1320",
+        self.__board = Board()
+        self.__chess_board_svg.src = svg.board(self.__board)
+        while self.__game_status and not self.__board.is_game_over():
+            engine_move: Move | None = self.__engine.play(self.__board, Limit(time=0.1)).move
+            if engine_move is None or engine_move not in self.__board.legal_moves:
+                self.logger(MessageType.ERROR, "No move found!")
+                continue
+            from_square: int = engine_move.from_square  # <- Numeric notation (0 in bottom-left corner, 63 in top-right corner)
+            to_square: int = engine_move.to_square  # <- Numeric notation (0 in bottom-left corner, 63 in top-right corner)
+            if self.__game_status:
+                self.__board.push(engine_move)
+                self.__chess_board_svg.src = svg.board(self.__board)
+                self.__page.update()
+                self.logger(MessageType.MOVE, f"Engine: {engine_move.uci()}")
+        self.stop_game()
+        if self.__board.is_game_over():
+            self.database.add_game_data(self.__board, start_datetime, self.__stockfish_skill_level, ("Stockfish", "Human"))
+            self.logger(MessageType.INFO, "Game data saved to database!")
+
+    def stop_game(self) -> None:
+        if not self.__game_status:
+            return
+        self.__game_status = False
+        self.__engine.quit()
+        self.logger(MessageType.GAME_STATUS, "Game stopped!")
+        self.__page.update()
+
+
+class ChessApp:
+    def __init__(self, page: Page) -> None:
         self.__board_height: int = 500
         self.__board_width: int = 500
         self.__app_padding: int = 20
@@ -227,6 +291,7 @@ class ChessApp:
         self.__page.title = "ChessApp for Kawasaki"
         self.logger = Logger(self.__board_width * 2)
         self.database = ChessDatabase("chess.db")
+        self.game_logic = GameLogic(self.__board_width, self.__board_height, self.logger, self.database, self.__page)
         self.__page.window.alignment = alignment.center
         self.__maximize_button: IconButton = IconButton(
             icons.CHECK_BOX_OUTLINE_BLANK,
@@ -237,7 +302,6 @@ class ChessApp:
             hover_color=colors.BLUE_400,
             style=ButtonStyle(shape=RoundedRectangleBorder(radius=5)),
         )
-        self.__chess_board_svg: Image = Image(src=svg.board(Board()), width=self.__board_width, height=self.__board_height)
         self.__page.window.title_bar_hidden = True
         self.__page.window.on_event = self.__window_event
         self.__appbar = AppBar(
@@ -289,11 +353,11 @@ class ChessApp:
                         [
                             Column(
                                 [
-                                    self.__chess_board_svg,
+                                    self.game_logic.chess_board_svg,
                                     Row(
                                         [
-                                            TextButton("Start", on_click=lambda _: self.start_game(), icon=icons.PLAY_ARROW),
-                                            TextButton("Stop", on_click=lambda _: self.stop_game(), icon=icons.STOP_SHARP),
+                                            TextButton("Start", on_click=lambda _: self.game_logic.start_game(), icon=icons.PLAY_ARROW),
+                                            TextButton("Stop", on_click=lambda _: self.game_logic.stop_game(), icon=icons.STOP_SHARP),
                                             TextButton("Clear logs", on_click=lambda _: self.logger.clear(), icon=icons.CLEAR_ALL),
                                         ],
                                     ),
@@ -347,44 +411,8 @@ class ChessApp:
         self.__page.add(self.__appbar, self.__tabs_layout)
         self.__page.update()
 
-    def start_game(self) -> None:
-        if self.__game_status:
-            return
-        start_datetime: datetime = datetime.now(TIMEZONE)
-        self.logger(MessageType.GAME_STATUS, "Game started!")
-        self.__game_status = True
-        self.__engine: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
-        self.__engine.configure({"Threads": "4", "Hash": "2048", "Skill Level": self.__stockfish_skill_level})
-        # "UCI_LimitStrength": "true", "UCI_Elo": "1320",
-        self.__board = Board()
-        self.__chess_board_svg.src = svg.board(self.__board)
-        while self.__game_status and not self.__board.is_game_over():
-            engine_move: Move | None = self.__engine.play(self.__board, Limit(time=0.1)).move
-            if engine_move is None or engine_move not in self.__board.legal_moves:
-                self.logger(MessageType.ERROR, "No move found!")
-                continue
-            from_square: int = engine_move.from_square  # <- Numeric notation (0 in bottom-left corner, 63 in top-right corner)
-            to_square: int = engine_move.to_square  # <- Numeric notation (0 in bottom-left corner, 63 in top-right corner)
-            if self.__game_status:
-                self.__board.push(engine_move)
-                self.__chess_board_svg.src = svg.board(self.__board)
-                self.__page.update()
-                self.logger(MessageType.MOVE, f"Engine: {engine_move.uci()}")
-        self.stop_game()
-        if self.__board.is_game_over():
-            self.database.add_game_data(self.__board, start_datetime, self.__stockfish_skill_level, ("Stockfish", "Human"))
-            self.logger(MessageType.INFO, "Game data saved to database!")
-
-    def stop_game(self) -> None:
-        if not self.__game_status:
-            return
-        self.__game_status = False
-        self.__engine.quit()
-        self.logger(MessageType.GAME_STATUS, "Game stopped!")
-        self.__page.update()
-
     def __close(self) -> None:
-        self.stop_game()
+        self.game_logic.stop_game()
         self.database.close()
         self.__page.window.close()
 
