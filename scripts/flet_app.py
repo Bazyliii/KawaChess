@@ -4,7 +4,7 @@ from enum import Enum
 from os.path import exists
 from sqlite3 import Connection, Cursor, connect
 from time import sleep
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 import cv2
 import flet
@@ -47,7 +47,7 @@ from pytz.tzinfo import BaseTzInfo
 if TYPE_CHECKING:
     from numpy import ndarray
 
-TIMEZONE: BaseTzInfo = timezone("Europe/Warsaw")
+TIMEZONE: Final[BaseTzInfo] = timezone("Europe/Warsaw")
 
 
 class MessageType(Enum):
@@ -139,7 +139,8 @@ class ChessDatabase:
             self.cursor: Cursor = self.connection.cursor()
 
     def close(self) -> None:
-        self.connection.close()
+        if self.connection:
+            self.connection.close()
 
     @staticmethod
     def get_game_results(board: Board) -> Literal[1, 2, 3, 4, 5, 6, 7, 8]:
@@ -276,9 +277,9 @@ class GameLogic:
 
 class ChessApp:
     def __init__(self, page: Page) -> None:
-        self.__board_height: int = 500
-        self.__board_width: int = 500
-        self.__app_padding: int = 20
+        self.__board_height: Final[int] = 500
+        self.__board_width: Final[int] = 500
+        self.__app_padding: Final[int] = 20
         self.__page: Page = page
         # TODO: Theming based on system accent color
         # self.__page.theme = flet.Theme(
