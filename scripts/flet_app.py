@@ -190,6 +190,7 @@ class OpenCVCapture(Image):
     def __init__(self, height: int, width: int) -> None:
         super().__init__()
         self.capture = cv2.VideoCapture(r"C:\Users\jaros\Downloads\Prezentacja1.mp4")
+        self.__wait_time: float = self.capture.get(cv2.CAP_PROP_FPS) / 1000
         self.__height: int = height
         self.__width: int = width
         self.__resize: tuple[int, int] = (self.__width, self.__height)
@@ -200,7 +201,7 @@ class OpenCVCapture(Image):
             frame = cv2.resize(frame, self.__resize)
             self.src_base64 = base64.b64encode(cv2.imencode(".png", frame)[1]).decode("utf-8")
             self.update()
-            sleep(self.capture.get(cv2.CAP_PROP_FPS) / 1000)
+            sleep(self.__wait_time)
 
     def build(self) -> None:
         self.img = Image(height=self.__height, width=self.__width)
