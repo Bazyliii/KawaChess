@@ -27,6 +27,7 @@ from flet import (
     Page,
     RoundedRectangleBorder,
     Row,
+    Slider,
     Tab,
     TabAlignment,
     Tabs,
@@ -218,6 +219,7 @@ class GameLogic:
         self.__game_status: bool = False
         self.__stockfish_skill_level: int = 20
         self.__chess_board_svg: Image = Image(src=svg.board(Board()), width=board_width, height=board_height)
+        self.__game_stockfish_skill_lvl: int
 
     @property
     def chess_board_svg(self) -> Image:
@@ -247,6 +249,7 @@ class GameLogic:
         self.__game_status = True
         self.__engine: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
         self.__engine.configure({"Threads": "4", "Hash": "2048", "Skill Level": self.__stockfish_skill_level})
+        self.__game_stockfish_skill_lvl = self.__stockfish_skill_level
         # "UCI_LimitStrength": "true", "UCI_Elo": "1320",
         self.__board = Board()
         self.__chess_board_svg.src = svg.board(self.__board)
@@ -264,7 +267,7 @@ class GameLogic:
                 self.logger(MessageType.MOVE, f"Engine: {engine_move.uci()}")
         self.stop_game()
         if self.__board.is_game_over():
-            self.database.add_game_data(self.__board, start_datetime, self.__stockfish_skill_level, ("Stockfish", "Human"))
+            self.database.add_game_data(self.__board, start_datetime, self.__game_stockfish_skill_lvl, ("Stockfish", "Human"))
             self.logger(MessageType.INFO, "Game data saved to database!")
 
     def stop_game(self) -> None:
@@ -340,11 +343,31 @@ class ChessApp:
                 Container(width=20),
             ],
         )
-        self.__settings_tab = Container(
-            Text("Settings tab", size=30, weight=FontWeight.BOLD),
+
+        def on_slider_change(e: ControlEvent) -> None:
+            self.game_logic.stockfish_skill_level = e.control.value
+            page.update()
+
+        self.__settings_tab = Column(
+            [
+                Text("Stockfish skill level", size=30, weight=FontWeight.BOLD),
+                Slider(
+                    min=1,
+                    max=20,
+                    divisions=19,
+                    on_change=on_slider_change,
+                    width=400,
+                    value=self.game_logic.stockfish_skill_level,
+                    label="{value}",
+                ),
+            ],
+            horizontal_alignment=CrossAxisAlignment.CENTER,
+            alignment=MainAxisAlignment.CENTER,
         )
+
         self.__about_tab = Container(content=Text("About tab", size=30, weight=FontWeight.BOLD), alignment=alignment.center)
         self.__logs_tab: ListView = self.logger.log_container
+        self.__database_tab = Container()
         self.__game_tab = Container(
             Column(
                 [
@@ -370,13 +393,14 @@ class ChessApp:
         )
         self.__tabs_layout: Tabs = Tabs(
             tabs=[
-                Tab(text="Game", content=self.__game_tab),
-                Tab(text="Settings", content=self.__settings_tab),
-                Tab(text="Logs", content=self.__logs_tab),
-                Tab(text="Database", content=Container()),
-                Tab(text="About", content=self.__about_tab),
+                Tab(text="Game", content=self.__game_tab, icon=icons.PLAY_ARROW),
+                Tab(text="Settings", content=self.__settings_tab, icon=icons.SETTINGS),
+                Tab(text="Logs", content=self.__logs_tab, icon=icons.RECEIPT_LONG),
+                Tab(text="Database", content=self.__database_tab, icon=icons.STACKED_LINE_CHART),
+                Tab(text="About", content=self.__about_tab, icon=icons.INFO_OUTLINED),
             ],
             expand=1,
+            tab_alignment=TabAlignment.CENTER,
         )
         self.__page.add(self.__appbar, self.__tabs_layout)
         self.__page.update()
