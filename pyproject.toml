@@ -8,13 +8,13 @@ build-backend = "setuptools.build_meta"
 name = "KAWASAKI-Chess"
 dynamic = ["version"]
 license = {text = "MIT License"}
-requires-python = ">=3.11"
+requires-python = ">=3.12.7"
 authors = [{name = "Jarosław Wierzbowski", email = "jaroslawierzbowski2001@gmail.com"}]
 dependencies = [
     "chess >= 1.10.0",
     "py-cpuinfo >= 9.0.0",
-    "pytz >= 2024.1",
-    "flet >= 0.23.2",
+    "pytz >= 2024.2",
+    "flet >= 0.24.1",
     "opencv-python >= 4.10.0.84"
 ]
 

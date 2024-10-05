@@ -304,6 +304,20 @@ class ChessApp:
             hover_color=colors.BLUE_400,
             style=ButtonStyle(shape=RoundedRectangleBorder(radius=5)),
         )
+        self.__minimize_button: IconButton = IconButton(
+            icons.MINIMIZE,
+            on_click=lambda _: self.__minimize(),
+            icon_size=15,
+            hover_color=colors.GREEN_400,
+            style=ButtonStyle(shape=RoundedRectangleBorder(radius=5)),
+        )
+        self.__close_button: IconButton = IconButton(
+            icons.CLOSE,
+            on_click=lambda _: self.__close(),
+            icon_size=15,
+            hover_color=colors.RED_400,
+            style=ButtonStyle(shape=RoundedRectangleBorder(radius=5)),
+        )
         self.__page.window.title_bar_hidden = True
         self.__page.window.on_event = self.__window_event
         self.__appbar = AppBar(
@@ -320,95 +334,49 @@ class ChessApp:
             bgcolor=colors.GREY_900,
             title_spacing=self.__app_padding,
             actions=[
-                IconButton(
-                    icons.MINIMIZE,
-                    on_click=lambda _: self.__minimize(),
-                    icon_size=15,
-                    hover_color=colors.GREEN_400,
-                    style=ButtonStyle(shape=RoundedRectangleBorder(radius=5)),
-                ),
+                self.__minimize_button,
                 self.__maximize_button,
-                IconButton(
-                    icons.CLOSE_SHARP,
-                    on_click=lambda _: self.__close(),
-                    icon_size=15,
-                    hover_color=colors.RED_400,
-                    style=ButtonStyle(shape=RoundedRectangleBorder(radius=5)),
-                ),
+                self.__close_button,
                 Container(width=20),
             ],
         )
-        self.__settings_tab = Container()
-        self.__about_tab = Container(
-            Column(
-                controls=[Text(self.__page.title, size=30, weight=FontWeight.BOLD), Text("Version: v1.0.0", size=20), Text("Author: Jarosław Wierzbowski")],
-                alignment=MainAxisAlignment.CENTER,
-                horizontal_alignment=CrossAxisAlignment.CENTER,
-            ),
-            alignment=alignment.center,
+        self.__settings_tab = Container(
+            Text("Settings tab", size=30, weight=FontWeight.BOLD),
         )
+        self.__about_tab = Container(content=Text("About tab", size=30, weight=FontWeight.BOLD), alignment=alignment.center)
         self.__logs_tab: ListView = self.logger.log_container
         self.__game_tab = Container(
             Column(
                 [
                     Row(
                         [
-                            Column(
-                                [
-                                    self.game_logic.chess_board_svg,
-                                    Row(
-                                        [
-                                            TextButton("Start", on_click=lambda _: self.game_logic.start_game(), icon=icons.PLAY_ARROW),
-                                            TextButton("Stop", on_click=lambda _: self.game_logic.stop_game(), icon=icons.STOP_SHARP),
-                                            TextButton("Clear logs", on_click=lambda _: self.logger.clear(), icon=icons.CLEAR_ALL),
-                                        ],
-                                    ),
-                                ],
-                                alignment=MainAxisAlignment.CENTER,
-                                horizontal_alignment=CrossAxisAlignment.CENTER,
-                            ),
-                            Container(width=self.__app_padding),
-                            Column(
-                                [
-                                    OpenCVCapture(self.__board_width, self.__board_height),
-                                ],
-                                alignment=MainAxisAlignment.CENTER,
-                                horizontal_alignment=CrossAxisAlignment.CENTER,
-                            ),
+                            self.game_logic.chess_board_svg,
+                            OpenCVCapture(self.__board_width, self.__board_height),
                         ],
                         alignment=MainAxisAlignment.CENTER,
                     ),
                     Row(
                         [
-                            self.logger.log_container,
+                            TextButton("Start", on_click=lambda _: self.game_logic.start_game(), icon=icons.PLAY_ARROW),
+                            TextButton("Stop", on_click=lambda _: self.game_logic.stop_game(), icon=icons.STOP_SHARP),
+                            TextButton("Clear logs", on_click=lambda _: self.logger.clear(), icon=icons.CLEAR_ALL),
                         ],
                         alignment=MainAxisAlignment.CENTER,
-                        vertical_alignment=CrossAxisAlignment.CENTER,
-                        expand=True,
-                        spacing=20,
                     ),
                 ],
+                horizontal_alignment=CrossAxisAlignment.CENTER,
+                alignment=MainAxisAlignment.CENTER,
             ),
         )
-        self.__tabs_layout = Column(
-            [
-                # TODO: Separate content to different tabs
-                Tabs(
-                    tabs=[
-                        Tab(text="Game", content=self.__game_tab),
-                        Tab(text="Settings", content=self.__settings_tab),
-                        Tab(text="Logs", content=self.__logs_tab),
-                        Tab(text="Database", content=Container()),
-                        Tab(text="About", content=self.__about_tab),
-                    ],
-                    expand=True,
-                    tab_alignment=TabAlignment.CENTER,
-                    animation_duration=0,
-                ),
+        self.__tabs_layout: Tabs = Tabs(
+            tabs=[
+                Tab(text="Game", content=self.__game_tab),
+                Tab(text="Settings", content=self.__settings_tab),
+                Tab(text="Logs", content=self.__logs_tab),
+                Tab(text="Database", content=Container()),
+                Tab(text="About", content=self.__about_tab),
             ],
-            expand=True,
-            alignment=MainAxisAlignment.CENTER,
-            horizontal_alignment=CrossAxisAlignment.CENTER,
+            expand=1,
         )
         self.__page.add(self.__appbar, self.__tabs_layout)
         self.__page.update()

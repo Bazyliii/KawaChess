@@ -8,3 +8,6 @@ scripts/test.png
 scripts/test2.png
 chess.db
 KAWASAKI_Chess.egg-info
+board_moves
+build
+*.pdf
