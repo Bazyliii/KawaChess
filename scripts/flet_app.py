@@ -32,7 +32,9 @@ from flet import (
     TabAlignment,
     Tabs,
     Text,
+    TextAlign,
     TextButton,
+    TextField,
     TextOverflow,
     TextSpan,
     TextStyle,
@@ -42,11 +44,14 @@ from flet import (
     colors,
     icons,
 )
+from numpy import ndarray
 from pytz import timezone
 from pytz.tzinfo import BaseTzInfo
 
 if TYPE_CHECKING:
-    from numpy import ndarray
+    from collections.abc import Sequence
+
+    from cv2.aruco import DetectorParameters, Dictionary
 
 TIMEZONE: Final[BaseTzInfo] = timezone("Europe/Warsaw")
 
@@ -190,16 +195,48 @@ class ChessDatabase:
 class OpenCVCapture(Image):
     def __init__(self, height: int, width: int) -> None:
         super().__init__()
-        self.capture = cv2.VideoCapture(r"C:\Users\jaros\Downloads\Prezentacja1.mp4")
+        self.capture = cv2.VideoCapture(0)
         self.__wait_time: float = self.capture.get(cv2.CAP_PROP_FPS) / 1000
         self.__height: int = height
         self.__width: int = width
         self.__resize: tuple[int, int] = (self.__width, self.__height)
+        self.__aruco_dict: Dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+        self.__aruco_params: DetectorParameters = cv2.aruco.DetectorParameters()
+        self.__aruco_detector: cv2.aruco.ArucoDetector = cv2.aruco.ArucoDetector(self.__aruco_dict, self.__aruco_params)
+
+    def draw_aruco_marker(self, frame: ndarray) -> ndarray:
+        marker_data: tuple = self.__aruco_detector.detectMarkers(frame)
+        corners: Sequence[ndarray] = marker_data[0]
+        if len(corners) > 0:
+            ids: ndarray = marker_data[1].flatten()
+            for marker_corner, marker_id in zip(corners, ids, strict=False):
+                corners_reshaped: ndarray = marker_corner.reshape((4, 2))
+                (top_left, top_right, bottom_right, bottom_left) = corners_reshaped
+
+                top_right: tuple[int, int] = (int(top_right[0]), int(top_right[1]))
+                bottom_right: tuple[int, int] = (int(bottom_right[0]), int(bottom_right[1]))
+                bottom_left: tuple[int, int] = (int(bottom_left[0]), int(bottom_left[1]))
+                top_left: tuple[int, int] = (int(top_left[0]), int(top_left[1]))
+
+                cv2.line(frame, top_left, top_right, (80, 127, 255), 2)
+                cv2.line(frame, top_right, bottom_right, (80, 127, 255), 2)
+                cv2.line(frame, bottom_right, bottom_left, (80, 127, 255), 2)
+                cv2.line(frame, bottom_left, top_left, (80, 127, 255), 2)
+
+                cx = int((top_left[0] + bottom_right[0]) / 2.0)
+                cy = int((top_left[1] + bottom_right[1]) / 2.0)
+
+                cv2.circle(frame, (cx, cy), 4, (255, 127, 80), -1)
+
+                cv2.putText(frame, str(marker_id), (top_left[0], top_left[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 127, 80), 2)
+        return frame
 
     def did_mount(self) -> None:
         while True:
             frame: ndarray = self.capture.read()[1]
+            frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
             frame = cv2.resize(frame, self.__resize)
+            frame = self.draw_aruco_marker(frame)
             self.src_base64 = base64.b64encode(cv2.imencode(".png", frame)[1]).decode("utf-8")
             self.update()
             sleep(self.__wait_time)
@@ -220,6 +257,11 @@ class GameLogic:
         self.__stockfish_skill_level: int = 20
         self.__chess_board_svg: Image = Image(src=svg.board(Board()), width=board_width, height=board_height)
         self.__game_stockfish_skill_lvl: int
+        self.__player_name: str = "Player"
+
+    @property
+    def player_name(self) -> str:
+        return self.__player_name
 
     @property
     def chess_board_svg(self) -> Image:
@@ -228,6 +270,10 @@ class GameLogic:
     @property
     def game_status(self) -> bool:
         return self.__game_status
+
+    @player_name.setter
+    def player_name(self, value: str) -> None:
+        self.__player_name = value
 
     @game_status.setter
     def game_status(self, value: bool) -> None:
@@ -267,7 +313,7 @@ class GameLogic:
                 self.logger(MessageType.MOVE, f"Engine: {engine_move.uci()}")
         self.stop_game()
         if self.__board.is_game_over():
-            self.database.add_game_data(self.__board, start_datetime, self.__game_stockfish_skill_lvl, ("Stockfish", "Human"))
+            self.database.add_game_data(self.__board, start_datetime, self.__game_stockfish_skill_lvl, ("Stockfish", self.__player_name))
             self.logger(MessageType.INFO, "Game data saved to database!")
 
     def stop_game(self) -> None:
@@ -276,6 +322,14 @@ class GameLogic:
         self.__game_status = False
         self.__engine.quit()
         self.logger(MessageType.GAME_STATUS, "Game stopped!")
+        self.__page.update()
+
+    def resign_game(self) -> None:
+        if not self.__game_status:
+            return
+        self.__game_status = False
+        self.__engine.quit()
+        self.logger(MessageType.GAME_STATUS, "Game stopped! Player resigned!")
         self.__page.update()
 
 
@@ -348,9 +402,15 @@ class ChessApp:
             self.game_logic.stockfish_skill_level = e.control.value
             page.update()
 
+        def on_text_field_change(e: ControlEvent) -> None:
+            self.game_logic.player_name = e.control.value
+            page.update()
+
         self.__settings_tab = Column(
             [
-                Text("Stockfish skill level", size=30, weight=FontWeight.BOLD),
+                Text("Player nickname:", size=25, weight=FontWeight.BOLD),
+                TextField(width=400, on_change=on_text_field_change, text_align=TextAlign.CENTER),
+                Text("Stockfish skill level:", size=25, weight=FontWeight.BOLD),
                 Slider(
                     min=1,
                     max=20,
@@ -373,6 +433,12 @@ class ChessApp:
                 [
                     Row(
                         [
+                            Text("Clock", size=30, weight=FontWeight.BOLD),
+                        ],
+                        alignment=MainAxisAlignment.CENTER,
+                    ),
+                    Row(
+                        [
                             self.game_logic.chess_board_svg,
                             OpenCVCapture(self.__board_width, self.__board_height),
                         ],
@@ -382,6 +448,7 @@ class ChessApp:
                         [
                             TextButton("Start", on_click=lambda _: self.game_logic.start_game(), icon=icons.PLAY_ARROW),
                             TextButton("Stop", on_click=lambda _: self.game_logic.stop_game(), icon=icons.STOP_SHARP),
+                            TextButton("Resign", on_click=lambda _: self.game_logic.resign_game(), icon=icons.HANDSHAKE),
                             TextButton("Clear logs", on_click=lambda _: self.logger.clear(), icon=icons.CLEAR_ALL),
                         ],
                         alignment=MainAxisAlignment.CENTER,

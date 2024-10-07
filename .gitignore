@@ -11,3 +11,4 @@ KAWASAKI_Chess.egg-info
 board_moves
 build
 *.pdf
+scripts/ArUco.py
