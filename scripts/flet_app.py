@@ -44,6 +44,7 @@ from flet import (
     colors,
     icons,
 )
+from flet_timer.flet_timer import Timer
 from numpy import ndarray
 from pytz import timezone
 from pytz.tzinfo import BaseTzInfo
@@ -127,7 +128,7 @@ class ChessDatabase:
                     white_player TEXT NOT NULL,
                     black_player TEXT NOT NULL,
                     date TEXT NOT NULL,
-                    duration TEXT NOT NULL,
+                    game_duration TEXT NOT NULL,
                     result_id INTEGER NOT NULL,
                     stockfish_skill_level INTEGER NOT NULL,
                     move_count INTEGER NOT NULL,
@@ -169,19 +170,20 @@ class ChessDatabase:
                 result = 1
         return result
 
-    def add_game_data(self, board: Board, start_datetime: datetime, stockfish_skill_level: int, players: tuple[str, ...] = ("Stockfish", "Stockfish")) -> None:
+    def add_game_data(
+        self, board: Board, start_datetime: datetime, duration: timedelta, stockfish_skill_level: int, players: tuple[str, ...] = ("Stockfish", "Player")
+    ) -> None:
         game: Game = Game().from_board(board)
-        duration: timedelta = datetime.now(TIMEZONE) - start_datetime
         self.cursor.execute(
             """
-            INSERT INTO chess_games(white_player, black_player, date, duration, result_id,stockfish_skill_level ,move_count, FEN_end_position, PGN_game_sequence)
+            INSERT INTO chess_games(white_player, black_player, date, game_duration, result_id,stockfish_skill_level ,move_count, FEN_end_position, PGN_game_sequence)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 players[0],
                 players[1],
                 start_datetime.strftime("%d-%m-%Y %H:%M:%S"),
-                str(duration),
+                str(duration - timedelta(seconds=1)),
                 self.get_game_results(board),
                 stockfish_skill_level,
                 board.fullmove_number,
@@ -203,6 +205,21 @@ class OpenCVCapture(Image):
         self.__aruco_dict: Dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
         self.__aruco_params: DetectorParameters = cv2.aruco.DetectorParameters()
         self.__aruco_detector: cv2.aruco.ArucoDetector = cv2.aruco.ArucoDetector(self.__aruco_dict, self.__aruco_params)
+        self.__aruco_pieces_ids: dict = {
+            **dict.fromkeys(range(8), "White Pawn"),
+            **dict.fromkeys([8, 9], "White Rook"),
+            **dict.fromkeys([10, 11], "White Rook"),
+            **dict.fromkeys([12, 13], "White Rook"),
+            14: "White Queen",
+            15: "White King",
+            **dict.fromkeys(range(16, 24), "Black Pawn"),
+            **dict.fromkeys([24, 25], "Black Rook"),
+            **dict.fromkeys([26, 27], "Black Rook"),
+            **dict.fromkeys([28, 29], "Black Rook"),
+            30: "Black Queen",
+            31: "Black King",
+            **dict.fromkeys(range(32, 99), "Not defined"),
+        }
 
     def draw_aruco_marker(self, frame: ndarray) -> ndarray:
         marker_data: tuple = self.__aruco_detector.detectMarkers(frame)
@@ -228,7 +245,7 @@ class OpenCVCapture(Image):
 
                 cv2.circle(frame, (cx, cy), 4, (255, 127, 80), -1)
 
-                cv2.putText(frame, str(marker_id), (top_left[0], top_left[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 127, 80), 2)
+                cv2.putText(frame, self.__aruco_pieces_ids[marker_id], (top_left[0], top_left[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 2)
         return frame
 
     def did_mount(self) -> None:
@@ -255,9 +272,15 @@ class GameLogic:
         self.__page: Page = page
         self.__game_status: bool = False
         self.__stockfish_skill_level: int = 20
-        self.__chess_board_svg: Image = Image(src=svg.board(Board()), width=board_width, height=board_height)
         self.__game_stockfish_skill_lvl: int
+        self.__chess_board_svg: Image = Image(src=svg.board(Board()), width=board_width, height=board_height)
+        self.__start_datetime: datetime
+        self.__game_duration: timedelta = timedelta()
         self.__player_name: str = "Player"
+
+    @property
+    def start_datetime(self) -> datetime:
+        return self.__start_datetime
 
     @property
     def player_name(self) -> str:
@@ -270,6 +293,14 @@ class GameLogic:
     @property
     def game_status(self) -> bool:
         return self.__game_status
+
+    @property
+    def game_duration(self) -> timedelta:
+        return self.__game_duration
+
+    @game_duration.setter
+    def game_duration(self, value: timedelta) -> None:
+        self.__game_duration = value
 
     @player_name.setter
     def player_name(self, value: str) -> None:
@@ -290,12 +321,13 @@ class GameLogic:
     def start_game(self) -> None:
         if self.__game_status:
             return
-        start_datetime: datetime = datetime.now(TIMEZONE)
+        self.__start_datetime = datetime.now(TIMEZONE)
         self.logger(MessageType.GAME_STATUS, "Game started!")
         self.__game_status = True
         self.__engine: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
         self.__engine.configure({"Threads": "4", "Hash": "2048", "Skill Level": self.__stockfish_skill_level})
         self.__game_stockfish_skill_lvl = self.__stockfish_skill_level
+        self.__game_duration = timedelta()
         # "UCI_LimitStrength": "true", "UCI_Elo": "1320",
         self.__board = Board()
         self.__chess_board_svg.src = svg.board(self.__board)
@@ -313,7 +345,9 @@ class GameLogic:
                 self.logger(MessageType.MOVE, f"Engine: {engine_move.uci()}")
         self.stop_game()
         if self.__board.is_game_over():
-            self.database.add_game_data(self.__board, start_datetime, self.__game_stockfish_skill_lvl, ("Stockfish", self.__player_name))
+            self.database.add_game_data(
+                self.__board, self.__start_datetime, self.__game_duration, self.__game_stockfish_skill_lvl, ("Stockfish", self.__player_name)
+            )
             self.logger(MessageType.INFO, "Game data saved to database!")
 
     def stop_game(self) -> None:
@@ -339,19 +373,12 @@ class ChessApp:
         self.__board_width: Final[int] = 500
         self.__app_padding: Final[int] = 20
         self.__page: Page = page
-        # TODO: Theming based on system accent color
-        # self.__page.theme = flet.Theme(
-        #     font_family="Roboto",
-        #     tabs_theme=flet.TabsTheme(
-        #         indicator_color=colors.RED_300,
-        #         overlay_color=colors.RED_900,
-        #     ),
-        # )
         self.__page.title = "ChessApp for Kawasaki"
         self.logger = Logger(self.__board_width * 2)
         self.database = ChessDatabase("chess.db")
         self.game_logic = GameLogic(self.__board_width, self.__board_height, self.logger, self.database, self.__page)
         self.__page.window.alignment = alignment.center
+        self.__page.window.height = 900
         self.__maximize_button: IconButton = IconButton(
             icons.CHECK_BOX_OUTLINE_BLANK,
             on_click=lambda _: self.__maximize(),
@@ -428,12 +455,23 @@ class ChessApp:
         self.__about_tab = Container(content=Text("About tab", size=30, weight=FontWeight.BOLD), alignment=alignment.center)
         self.__logs_tab: ListView = self.logger.log_container
         self.__database_tab = Container()
+        self.__clock = Text("0:00:00", size=60, weight=FontWeight.BOLD)
+
+        def refresh() -> None:
+            if not self.game_logic.game_status:
+                return
+            self.__clock.value = str(self.game_logic.game_duration)
+            self.game_logic.game_duration += timedelta(seconds=1)
+            self.__page.update()
+
+        self.__timer: Timer = Timer(name="Clock", interval_s=1, callback=refresh)
         self.__game_tab = Container(
             Column(
                 [
                     Row(
                         [
-                            Text("Clock", size=30, weight=FontWeight.BOLD),
+                            self.__timer,
+                            self.__clock,
                         ],
                         alignment=MainAxisAlignment.CENTER,
                     ),
