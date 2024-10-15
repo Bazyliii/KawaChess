@@ -245,7 +245,7 @@ class OpenCVCapture(Image):
 
                 cv2.circle(frame, (cx, cy), 4, (255, 127, 80), -1)
 
-                cv2.putText(frame, self.__aruco_pieces_ids[marker_id], (top_left[0], top_left[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 2)
+                # cv2.putText(frame, self.__aruco_pieces_ids[marker_id], (top_left[0], top_left[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 2)
         return frame
 
     def did_mount(self) -> None:
