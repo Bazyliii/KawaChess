@@ -34,8 +34,8 @@ def negotiation(socket, cmd, opt) -> None:
         socket.sendall(IAC + SB + TTYPE + IS + b"VT100" + IS + IAC + SE)
 
 
-IP: Final[str] = "192.168.1.155"
-PORT: Final[int] = 23
+IP: Final[str] = "127.0.0.1"
+PORT: Final[int] = 9105
 USER: Final[str] = "as"
 TIMEOUT: Final[int] = 5
 SPEED: Final[int] = 100
@@ -109,7 +109,6 @@ shift_point("Punkt_005", "Punkt_006", 0, 280, 0)
 shift_point("Punkt_006", "Punkt_007", 280, 0, 0)
 
 cmd_list: list[str] = [
-    "DO HOME",
     "DO HMOVE Punkt_003",
     "DO LDEPART 80",
     "DO LDEPART -80",
@@ -129,9 +128,9 @@ cmd_list: list[str] = [
 
 
 
-get_robot_status()
-# reset_errors()
-# motor_on()
-# for cmd in cmd_list:
-#     send_command(cmd)
-# motor_off()
+print(get_robot_status())
+reset_errors()
+motor_on()
+for cmd in cmd_list:
+    send_command(cmd)
+motor_off()

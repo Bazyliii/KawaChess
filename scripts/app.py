@@ -45,111 +45,88 @@ TIMEOUT: Final[int] = 5
 SPEED: Final[int] = 100
 ENTER: Final[bytes] = b"\n\r\n"
 ENDLINE: Final[bytes] = b"\r\n"
+ENCODING: Final[str] = "ascii"
 
 
-class Command(Enum):
-    RESET_ERRORS = ("ERESET", 0)
-    MOTOR_ON = ("ZPOW ON", 0)
-    MOTOR_OFF = ("ZPOW OFF", 0)
-    HOME = ("DO HOME", 1)
-    MOVE_TO_POINT = ("DO HMOVE", 1)
-    MOVE_UP_DOWN = ("DO LDEPART", 1)
+@dataclass
+class KawasakiCommand:
+    RESET: tuple[str, int] = ("ERESET", 0)
+    MOTOR_ON: tuple[str, int] = ("ZPOW ON", 0)
+    MOTOR_OFF: tuple[str, int] = ("ZPOW OFF", 0)
+    HOME: tuple[str, int] = ("DO HOME", 1)
+    MOVE_TO_POINT: tuple[str, int] = ("DO HMOVE", 1)
+    MOVE_UP_DOWN: tuple[str, int] = ("DO LDEPART", 1)
+
+
+class KawasakiStatus(Enum):
+    ERROR = 0
+    MOTOR_POWERED = 1
+    REPEAT_MODE = 2
+    TEACH_MODE = 3
+    BUSY = 4
+
+
+class KawasakiStatusError(Exception):
+    pass
 
 
 class JointState:
-    def __init__(self, jt1: float, jt2: float, jt3: float, jt4: float, jt5: float, jt6: float, point_name: str) -> None:
+    def __init__(self, jt1: float, jt2: float, jt3: float, jt4: float, jt5: float, jt6: float, name: str) -> None:  # noqa: PLR0917 PLR0913
         self.jt1: float = jt1
         self.jt2: float = jt2
         self.jt3: float = jt3
         self.jt4: float = jt4
         self.jt5: float = jt5
         self.jt6: float = jt6
-        self.point_name: str = point_name
-        self.x: float
-        self.y: float
-        self.z: float
+        self.name: str = name
         self.create_joint_point()
-        self.translate_joint_to_cartesian()
+        self.X, self.Y, self.Z, self.O, self.A, self.T = map(float, self.translate_joint_to_cartesian()[:6])
 
     def __bytes__(self) -> bytes:
-        return f"{self.jt1}, {self.jt2}, {self.jt3}, {self.jt4}, {self.jt5}, {self.jt6}".encode()
+        return f"{self.jt1},{self.jt2},{self.jt3},{self.jt4},{self.jt5},{self.jt6}".encode(ENCODING)
 
     def create_joint_point(self) -> None:
-        TELNET.write(f"POINT #{self.point_name}".encode() + b"\r\n")
+        TELNET.write(f"POINT #{self.name}".encode(ENCODING) + ENDLINE)
         TELNET.write(bytes(self))
         TELNET.write(ENTER)
 
-    def translate_joint_to_cartesian(self) -> None:
-        TELNET.write(f"POINT {self.point_name}=#{self.point_name}".encode() + b"\r\n")
+    def translate_joint_to_cartesian(self) -> list[float]:
+        TELNET.write(f"POINT {self.name}=#{self.name}".encode(ENCODING) + ENDLINE)
+        time.sleep(0.1)
+        x: list[float] = [float(i) for i in filter(None, TELNET.read_very_eager().decode(ENCODING).split(f"{self.name}=#{self.name}")[1].splitlines()[2].split(" "))]
         TELNET.write(ENTER)
+        return x
 
-    def translate_cartesian_to_joint(self) -> None:
-        TELNET.write(f"POINT #{self.point_name}={self.point_name}".encode() + b"\r\n")
+    def shift_point(self, x: float, y: float, z: float, name: str) -> "JointState":
+        TELNET.write(f"POINT {name} = SHIFT({self.name} by {x},{y},{z})".encode(ENCODING) + ENDLINE)
         TELNET.write(ENTER)
-
-    def shift_point(self, x: float, y: float, z: float, new_point_name: str) -> None:
-        TELNET.write(f"POINT {new_point_name} = SHIFT({self.point_name} by {x}, {y}, {z})".encode() + b"\r\n")
+        TELNET.write(f"POINT #{name}={name}".encode(ENCODING) + ENDLINE)
+        time.sleep(0.1)
+        jt: list[float] = [float(i) for i in filter(None, TELNET.read_very_eager().decode(ENCODING).split(f"#{name}={name}")[1].splitlines()[2].split(" "))]
         TELNET.write(ENTER)
-
+        return JointState(jt[0], jt[1], jt[2], jt[3], jt[4], jt[5], name)
 
 
 def connect_to_robot() -> None:
-    try:
-        TELNET.open(IP, PORT, TIMEOUT)
-        _ = TELNET.read_until(b"login: ", TIMEOUT)
-        TELNET.write(USER.encode() + ENDLINE)
-        _ = TELNET.read_until(b">", TIMEOUT)
-    except ConnectionRefusedError as _:
-        TELNET.close()
+    TELNET.open(IP, PORT, TIMEOUT)
+    _ = TELNET.read_until(b"login: ")
+    TELNET.write(USER.encode(ENCODING) + ENDLINE)
+    _ = TELNET.read_until(b">")
 
 
-# def reset_errors() -> None:
-#     TELNET.write(b"ERESET\r\n")
-#     time.sleep(0.5)
-
-
-# def motor_on() -> None:
-#     TELNET.write(b"ZPOW ON\r\n")
-#     time.sleep(0.5)
-
-
-# def motor_off() -> None:
-#     TELNET.write(b"ZPOW OFF\r\n")
-#     time.sleep(0.5)
-
-def send_command(command: Command, arg: JointState | float | None = None) -> None:
-    command_encoded: bytes = command.value[0].encode()
-    match command.value[1]:
+def send_command(command: tuple[str, int], arg: JointState | float = 0) -> None:
+    command_encoded: bytes = command[0].encode(ENCODING)
+    match command[1]:
         case 0:
             TELNET.write(command_encoded + ENDLINE)
+            _ = TELNET.read_until(b">")
         case 1:
             if type(arg) is JointState:
-                TELNET.write(command_encoded + bytes(arg) + ENDLINE)
-            elif type(arg) is float or int:
-                TELNET.write(command_encoded + str(arg).encode() + ENDLINE)
+                TELNET.write(command_encoded + f" #{arg.name}".encode(ENCODING) + ENDLINE)
             else:
                 TELNET.write(command_encoded + ENDLINE)
-            _ = TELNET.read_until(b"DO motion completed.")  # Możliwe że musi być przypisane!
-        case _:
-            pass
+            _ = TELNET.read_until(b"DO motion completed.")
     time.sleep(0.5)
-
-
-# def send_motion_command(command: str) -> None:
-#     TELNET.write(command.encode() + b"\r\n")
-#     _ = TELNET.read_until(b"DO motion completed.")
-#     time.sleep(0.5)
-
-
-# def create_joint_point(joints: JointState, point_name: str) -> None:
-#     TELNET.write(f"POINT #{point_name}".encode() + b"\r\n")
-#     TELNET.write(f"{joints.jt1},{joints.jt2},{joints.jt3},{joints.jt4},{joints.jt5},{joints.jt6}".encode())
-#     TELNET.write(ENTER)
-
-
-# def translate_joint_to_cartesian(from_point: JointState, to_point_name: str) -> None:
-#     TELNET.write(f"POINT {to_point_name}=#{from_point.position_name}".encode() + b"\r\n")
-#     TELNET.write(ENTER)
 
 
 # def shift_point(from_point_name: str, new_point_name: str, x: float, y: float, z: float) -> None:
@@ -157,57 +134,34 @@ def send_command(command: Command, arg: JointState | float | None = None) -> Non
 #     TELNET.write(ENTER)
 
 
-def get_robot_status() -> str:
+def get_robot_status() -> dict[KawasakiStatus, bool]:
     TELNET.write(b"STATUS\r\n")
-    status: str = TELNET.read_until(b"Stepper status").decode().split(">STATUS\r")[1]
-    return status
+    raw_status: str = TELNET.read_until(b">").decode(ENCODING).split("STATUS\r")[1]
+    return {
+        KawasakiStatus.ERROR: "error" in raw_status,
+        KawasakiStatus.MOTOR_POWERED: "Motor power OFF" not in raw_status,
+        KawasakiStatus.REPEAT_MODE: "REPEAT mode" in raw_status,
+        KawasakiStatus.TEACH_MODE: "TEACH mode" in raw_status,
+        KawasakiStatus.BUSY: "CYCLE START ON" in raw_status,
+    }
 
 
 connect_to_robot()
-send_command(Command.MOTOR_ON)
-send_command(Command.RESET_ERRORS)
+status: dict[KawasakiStatus, bool] = get_robot_status()
+
+start_corner: JointState = JointState(-52.095, -6.450, -59.472, -118.577, 52.309, 61.888, "start_corner")
+end_corner: JointState = JointState(52.095, -6.450, -59.472, -118.577, 52.309, 61.888, "end_corner")
+
+test_corner: JointState = start_corner.shift_point(100, 0, 0, "test_corner")
 
 
+if status[KawasakiStatus.TEACH_MODE]:
+    raise KawasakiStatusError(KawasakiStatus.TEACH_MODE.name)
+if status[KawasakiStatus.ERROR]:
+    send_command(KawasakiCommand.RESET)
+if not status[KawasakiStatus.MOTOR_POWERED]:
+    send_command(KawasakiCommand.MOTOR_ON)
 
-# start_corner: JointState = JointState(13.531, 44.211, -133.421, -27.616, -1.412, -118.985, "start_corner")
-# send_command(Command.MOVE_TO_POINT, start_corner)
-
-# end_corner = JointState = start_corner.shift_point(120, 0, 0, "end_corner")
-
-# send_command(Command.MOVE_TO_POINT, start_corner)
-
-# send_command(Command.MOTOR_ON)
-# send_command(Command.MOVE_TO_POINT, start_corner)
-
-# create_joint_point(start_corner, "Punkt_003")
-# translate_joint_to_cartesian("Punkt_003", "Punkt_004")
-# shift_point("Punkt_004", "Punkt_005", -280, 0, 0)
-# shift_point("Punkt_005", "Punkt_006", 0, 280, 0)
-# shift_point("Punkt_006", "Punkt_007", 280, 0, 0)
-
-cmd_list: list[str] = [
-    "DO HOME",
-    "DO HMOVE Punkt_003",
-    "DO LDEPART 80",
-    "DO LDEPART -80",
-    "DO HMOVE Punkt_005",
-    "DO LDEPART 80",
-    "DO LDEPART -80",
-    "DO HMOVE Punkt_006",
-    "DO LDEPART 80",
-    "DO LDEPART -80",
-    "DO HMOVE Punkt_007",
-    "DO LDEPART 80",
-    "DO LDEPART -80",
-    "DO HMOVE Punkt_003",
-    "DO LDEPART 80",
-    "DO LDEPART -80",
-]
-
-
-# print(get_robot_status())
-# reset_errors()
-# motor_on()
-# for cmd in cmd_list:
-#     send_command(cmd)
-# motor_off()
+# send_command(KawasakiCommand.HOME)
+# send_command(KawasakiCommand.MOVE_TO_POINT, start_corner)
+# send_command(KawasakiCommand.MOVE_TO_POINT, end_corner)
