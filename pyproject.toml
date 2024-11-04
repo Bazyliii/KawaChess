@@ -15,7 +15,8 @@ dependencies = [
     "py-cpuinfo >= 9.0.0",
     "pytz >= 2024.2",
     "flet >= 0.24.1",
-    "opencv-python >= 4.10.0.84"
+    "opencv-python >= 4.10.0.84",
+    "flet_timer" >= 0.0.13
 ]
 
 [tool.ruff]
@@ -85,7 +86,8 @@ ignore = [
     "FURB103",
     "FURB177",
     "TRY400",
-    "PLE1205"
+    "PLE1205",
+    "ANN101"
 ]
 
 fixable = [

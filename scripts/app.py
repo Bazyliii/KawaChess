@@ -36,10 +36,15 @@ def negotiation(socket: socket, cmd: bytes, opt: bytes) -> None:
         socket.sendall(IAC + SB + TTYPE + b"\00" + b"VT100" + b"\00" + IAC + SE)
 
 
+SIMULATION: Final[bool] = False
 TELNET: Final[Telnet] = Telnet()  # noqa: S312
 TELNET.set_option_negotiation_callback(negotiation)
-IP: Final[str] = "127.0.0.1"
-PORT: Final[int] = 9105
+if SIMULATION:
+    IP: Final[str] = "127.0.0.1"
+    PORT: Final[int] = 9105
+else:
+    IP: Final[str] = "192.168.1.155"
+    PORT: Final[int] = 23
 USER: Final[str] = "as"
 TIMEOUT: Final[int] = 5
 SPEED: Final[int] = 100
@@ -55,8 +60,9 @@ class KawasakiCommand:
     MOTOR_OFF: tuple[str, int] = ("ZPOW OFF", 0)
     HOME: tuple[str, int] = ("DO HOME", 1)
     MOVE_TO_POINT: tuple[str, int] = ("DO HMOVE", 1)
-    MOVE_UP_DOWN: tuple[str, int] = ("DO LDEPART", 1)
-
+    PICKUP: tuple[str, int] = ("DO LDEPART 80", 1)
+    PUTDOWN: tuple[str, int] = ("DO LDEPART -80", 1)
+    EXECUTE_PROG: tuple[str, int] = ("EXE", 2)
 
 class KawasakiStatus(Enum):
     ERROR = 0
@@ -114,7 +120,7 @@ def connect_to_robot() -> None:
     _ = TELNET.read_until(b">")
 
 
-def send_command(command: tuple[str, int], arg: JointState | float = 0) -> None:
+def send_command(command: tuple[str, int], arg: JointState | str | None = None) -> None:
     command_encoded: bytes = command[0].encode(ENCODING)
     match command[1]:
         case 0:
@@ -126,13 +132,10 @@ def send_command(command: tuple[str, int], arg: JointState | float = 0) -> None:
             else:
                 TELNET.write(command_encoded + ENDLINE)
             _ = TELNET.read_until(b"DO motion completed.")
+        case 2:
+            TELNET.write(command_encoded + f" {arg}".encode(ENCODING) + ENDLINE)
+            _ = TELNET.read_until(b"Program completed.")
     time.sleep(0.5)
-
-
-# def shift_point(from_point_name: str, new_point_name: str, x: float, y: float, z: float) -> None:
-#     TELNET.write(f"POINT {new_point_name} = SHIFT({from_point_name} by {x}, {y}, {z})".encode() + b"\r\n")
-#     TELNET.write(ENTER)
-
 
 def get_robot_status() -> dict[KawasakiStatus, bool]:
     TELNET.write(b"STATUS\r\n")
@@ -146,14 +149,23 @@ def get_robot_status() -> dict[KawasakiStatus, bool]:
     }
 
 
+def write_program_to_robot(program: str, name: str) -> None:
+    TELNET.write(b"KILL" + ENDLINE)
+    TELNET.write(b"1" + ENDLINE)
+    TELNET.write(ENTER)
+    TELNET.write(f"DELETE {name}".encode(ENCODING) + ENDLINE)
+    TELNET.write(b"1" + ENDLINE)
+    TELNET.write(ENTER)
+    TELNET.write(f"EDIT {name}, 1".encode(ENCODING) + ENDLINE)
+    for line in program.splitlines():
+        TELNET.write(line.encode(ENCODING) + ENDLINE)
+        # TELNET.write(ENTER)
+    TELNET.write(b"E")
+    TELNET.write(ENTER)
+    time.sleep(0.1)
+
 connect_to_robot()
 status: dict[KawasakiStatus, bool] = get_robot_status()
-
-start_corner: JointState = JointState(-52.095, -6.450, -59.472, -118.577, 52.309, 61.888, "start_corner")
-end_corner: JointState = JointState(52.095, -6.450, -59.472, -118.577, 52.309, 61.888, "end_corner")
-
-test_corner: JointState = start_corner.shift_point(100, 0, 0, "test_corner")
-
 
 if status[KawasakiStatus.TEACH_MODE]:
     raise KawasakiStatusError(KawasakiStatus.TEACH_MODE.name)
@@ -162,6 +174,72 @@ if status[KawasakiStatus.ERROR]:
 if not status[KawasakiStatus.MOTOR_POWERED]:
     send_command(KawasakiCommand.MOTOR_ON)
 
+prog: str = """
+HOME\n
+HMOVE left_top_corner\n
+HMOVE h8\n
+HMOVE a8\n
+HMOVE b4\n
+HMOVE d3\n
+HMOVE d1\n
+HMOVE d6\n
+HMOVE f4\n
+HMOVE g5\n
+HMOVE a1\n
+"""
+
+write_program_to_robot(prog, "temp_program")
+
+left_top_corner: JointState = JointState(19.175, 34.457, -137.455, 2.404, -8.782, -69.342, "left_top_corner")
+right_top_corner: JointState = left_top_corner.shift_point(-280, 0, 0, "right_top_corner")
+right_bot_corner: JointState = right_top_corner.shift_point(0, 280, 0, "right_bot_corner")
+left_bot_corner: JointState = right_bot_corner.shift_point(280, 0, 0, "left_bot_corner")
+
+
+def calculate_chessboard_point_to_move(chessboard_uci: str) -> JointState:
+    x: int = ord(chessboard_uci[0]) - ord("a")
+    y: int = int(chessboard_uci[1]) - 1
+    return left_top_corner.shift_point(x * -40, y * 40, 0, chessboard_uci)
+
+moves: list[str] = [
+    "h8",
+    "a8",
+    "b4",
+    "d3",
+    "d1",
+    "d6",
+    "f4",
+    "g5",
+    "a1", 
+]
+
+for move in moves:
+    calculate_chessboard_point_to_move(move)
+
+send_command(KawasakiCommand.EXECUTE_PROG, "temp_program")
 # send_command(KawasakiCommand.HOME)
-# send_command(KawasakiCommand.MOVE_TO_POINT, start_corner)
-# send_command(KawasakiCommand.MOVE_TO_POINT, end_corner)
+# send_command(KawasakiCommand.MOVE_TO_POINT, left_top_corner)
+# send_command(KawasakiCommand.PICKUP)
+# send_command(KawasakiCommand.PUTDOWN)
+# for move in moves:
+#     send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move(move))
+# send_command(KawasakiCommand.MOTOR_OFF)
+# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("h8"))
+# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("a8"))
+# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("b4"))
+# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("d3"))
+# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("d1"))
+# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("d6"))
+# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("f4"))
+# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("g5"))
+# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("a1"))
+
+# send_command(KawasakiCommand.HOME)
+# for _ in range(3):
+#     send_command(KawasakiCommand.MOVE_TO_POINT, left_top_corner)
+#     send_command(KawasakiCommand.MOVE_TO_POINT, right_top_corner)
+#     send_command(KawasakiCommand.MOVE_TO_POINT, right_bot_corner)
+#     send_command(KawasakiCommand.MOVE_TO_POINT, left_bot_corner)
+
+
+
