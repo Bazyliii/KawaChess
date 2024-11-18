@@ -18,7 +18,7 @@
 
 # Left top corner 72.319 286.221 -217.559 -155.001 177.533 -174.963
 
-
+import re
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -52,24 +52,29 @@ ENTER: Final[bytes] = b"\n\r\n"
 ENDLINE: Final[bytes] = b"\r\n"
 ENCODING: Final[str] = "ascii"
 
-
 @dataclass
 class KawasakiCommand:
     RESET: tuple[str, int] = ("ERESET", 0)
     MOTOR_ON: tuple[str, int] = ("ZPOW ON", 0)
     MOTOR_OFF: tuple[str, int] = ("ZPOW OFF", 0)
     HOME: tuple[str, int] = ("DO HOME", 1)
-    MOVE_TO_POINT: tuple[str, int] = ("DO HMOVE", 1)
+    MOVE_TO_POINT: tuple[str, int] = ("DO LMOVE", 1)
     PICKUP: tuple[str, int] = ("DO LDEPART 80", 1)
     PUTDOWN: tuple[str, int] = ("DO LDEPART -80", 1)
     EXECUTE_PROG: tuple[str, int] = ("EXE", 2)
+    CONTINUOUS_PATH_ON: tuple[str, int] = ("CP ON", 0)
+    CONTINUOUS_PATH_OFF: tuple[str, int] = ("CP OFF", 0)
 
 class KawasakiStatus(Enum):
     ERROR = 0
     MOTOR_POWERED = 1
     REPEAT_MODE = 2
     TEACH_MODE = 3
-    BUSY = 4
+    TEACH_LOCK = 4
+    BUSY = 5
+    HOLD = 6
+    CONTINUOUS_PATH = 7
+
 
 
 class KawasakiStatusError(Exception):
@@ -137,16 +142,17 @@ def send_command(command: tuple[str, int], arg: JointState | str | None = None) 
             _ = TELNET.read_until(b"Program completed.")
     time.sleep(0.5)
 
-def get_robot_status() -> dict[KawasakiStatus, bool]:
-    TELNET.write(b"STATUS\r\n")
-    raw_status: str = TELNET.read_until(b">").decode(ENCODING).split("STATUS\r")[1]
-    return {
-        KawasakiStatus.ERROR: "error" in raw_status,
-        KawasakiStatus.MOTOR_POWERED: "Motor power OFF" not in raw_status,
-        KawasakiStatus.REPEAT_MODE: "REPEAT mode" in raw_status,
-        KawasakiStatus.TEACH_MODE: "TEACH mode" in raw_status,
-        KawasakiStatus.BUSY: "CYCLE START ON" in raw_status,
-    }
+# def get_robot_status() -> dict[KawasakiStatus, bool]:
+#     TELNET.write(b"STATUS\r\n")
+#     raw_status: str = TELNET.read_until(b">").decode(ENCODING).split("STATUS\r")[1]
+#     return {
+#         KawasakiStatus.ERROR: "error" in raw_status,
+#         KawasakiStatus.MOTOR_POWERED: "Motor power OFF" not in raw_status,
+#         KawasakiStatus.REPEAT_MODE: "REPEAT mode" in raw_status,
+#         KawasakiStatus.TEACH_MODE: "TEACH mode" in raw_status,
+#         KawasakiStatus.BUSY: "CYCLE START ON" in raw_status,
+#         # SWITCH to check TEACH LOCK status
+#     }
 
 
 def write_program_to_robot(program: str, name: str) -> None:
@@ -159,87 +165,160 @@ def write_program_to_robot(program: str, name: str) -> None:
     TELNET.write(f"EDIT {name}, 1".encode(ENCODING) + ENDLINE)
     for line in program.splitlines():
         TELNET.write(line.encode(ENCODING) + ENDLINE)
-        # TELNET.write(ENTER)
     TELNET.write(b"E")
     TELNET.write(ENTER)
     time.sleep(0.1)
+
+
+def get_robot_status() -> dict[KawasakiStatus, bool]:
+    TELNET.write(b"SWITCH" + ENDLINE)
+    message: str = TELNET.read_until(b"Press SPACE key to continue").decode(ENCODING).split("SWITCH\r")[1]
+    raw_data = [s.replace(" ", "").replace("\n", "").replace("*", "").replace("\r", "") for s in re.split(" ON| OFF", message)]
+    raw_data.pop()
+    status_data = {key: value == " ON" for key, value in zip(raw_data, re.findall(" ON| OFF", message))}
+    time.sleep(0.1)
+    TELNET.write(ENTER)
+    return{
+        KawasakiStatus.BUSY: status_data["CS"],
+        KawasakiStatus.ERROR: status_data["ERROR"],
+        KawasakiStatus.MOTOR_POWERED: status_data["POWER"],
+        KawasakiStatus.REPEAT_MODE: status_data["REPEAT"],
+        KawasakiStatus.TEACH_MODE: not status_data["REPEAT"],
+        KawasakiStatus.TEACH_LOCK: status_data["TEACH_LOCK"],
+        KawasakiStatus.HOLD: not status_data["RUN"],
+        KawasakiStatus.CONTINUOUS_PATH: status_data["CP"],
+    }
 
 connect_to_robot()
 status: dict[KawasakiStatus, bool] = get_robot_status()
 
 if status[KawasakiStatus.TEACH_MODE]:
     raise KawasakiStatusError(KawasakiStatus.TEACH_MODE.name)
+if status[KawasakiStatus.TEACH_LOCK]:
+    raise KawasakiStatusError(KawasakiStatus.TEACH_LOCK.name)
+if status[KawasakiStatus.HOLD]:
+    raise KawasakiStatusError(KawasakiStatus.HOLD.name)
 if status[KawasakiStatus.ERROR]:
     send_command(KawasakiCommand.RESET)
+if status[KawasakiStatus.CONTINUOUS_PATH]:
+    send_command(KawasakiCommand.CONTINUOUS_PATH_OFF)
 if not status[KawasakiStatus.MOTOR_POWERED]:
     send_command(KawasakiCommand.MOTOR_ON)
+status = get_robot_status()
+if not status[KawasakiStatus.MOTOR_POWERED]:
+    raise KawasakiStatusError(KawasakiStatus.MOTOR_POWERED.name)
 
 prog: str = """
-HOME\n
-HMOVE left_top_corner\n
-HMOVE h8\n
-HMOVE a8\n
-HMOVE b4\n
-HMOVE d3\n
-HMOVE d1\n
-HMOVE d6\n
-HMOVE f4\n
-HMOVE g5\n
-HMOVE a1\n
+SPEED 100 ALWAYS\n
 """
-
 write_program_to_robot(prog, "temp_program")
 
 left_top_corner: JointState = JointState(19.175, 34.457, -137.455, 2.404, -8.782, -69.342, "left_top_corner")
-right_top_corner: JointState = left_top_corner.shift_point(-280, 0, 0, "right_top_corner")
-right_bot_corner: JointState = right_top_corner.shift_point(0, 280, 0, "right_bot_corner")
-left_bot_corner: JointState = right_bot_corner.shift_point(280, 0, 0, "left_bot_corner")
+# right_top_corner: JointState = left_top_corner.shift_point(-280, 0, 0, "right_top_corner")
+# right_bot_corner: JointState = right_top_corner.shift_point(0, 280, 0, "right_bot_corner")
+# left_bot_corner: JointState = right_bot_corner.shift_point(280, 0, 0, "left_bot_corner")
 
 
-def calculate_chessboard_point_to_move(chessboard_uci: str) -> JointState:
+def calculate_chessboard_point_to_move(chessboard_uci: str, z: float = 0.0) -> JointState:
     x: int = ord(chessboard_uci[0]) - ord("a")
     y: int = int(chessboard_uci[1]) - 1
-    return left_top_corner.shift_point(x * -40, y * 40, 0, chessboard_uci)
+    return left_top_corner.shift_point(x * -40, y * 40, z, chessboard_uci)
 
-moves: list[str] = [
-    "h8",
-    "a8",
-    "b4",
-    "d3",
-    "d1",
-    "d6",
-    "f4",
-    "g5",
-    "a1", 
-]
+# moves: list[str] = [
+#     "a1",
+#     "a2",
+#     "a3",
+#     "a4",
+#     "a5",
+#     "a6",
+#     "a7",
+#     "a8",
+#     "b1",
+#     "b2",
+#     "b3",
+#     "b4",
+#     "b5",
+#     "b6",
+#     "b7",
+#     "b8",
+#     "c1",
+#     "c2",
+#     "c3",
+#     "c4",
+#     "c5",
+#     "c6",
+#     "c7",
+#     "c8",
+#     "d1",
+#     "d2",
+#     "d3",
+#     "d4",
+#     "d5",
+#     "d6",
+#     "d7",
+#     "d8",
+#     "e1",
+#     "e2",
+#     "e3",
+#     "e4",
+#     "e5",
+#     "e6",
+#     "e7",
+#     "e8",
+#     "f1",
+#     "f2",
+#     "f3",
+#     "f4",
+#     "f5",
+#     "f6",
+#     "f7",
+#     "f8",
+#     "g1",
+#     "g2",
+#     "g3",
+#     "g4",
+#     "g5",
+#     "g6",
+#     "g7",
+#     "g8",
+#     "h1",
+#     "h2",
+#     "h3",
+#     "h4",
+#     "h5",
+#     "h6",
+#     "h7",    
+#     "h8",
+# ]
 
-for move in moves:
-    calculate_chessboard_point_to_move(move)
+# for move in moves:
+#     calculate_chessboard_point_to_move(move)
+
 
 send_command(KawasakiCommand.EXECUTE_PROG, "temp_program")
-# send_command(KawasakiCommand.HOME)
-# send_command(KawasakiCommand.MOVE_TO_POINT, left_top_corner)
-# send_command(KawasakiCommand.PICKUP)
-# send_command(KawasakiCommand.PUTDOWN)
-# for move in moves:
-#     send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move(move))
-# send_command(KawasakiCommand.MOTOR_OFF)
-# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("h8"))
-# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("a8"))
-# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("b4"))
-# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("d3"))
-# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("d1"))
-# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("d6"))
-# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("f4"))
-# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("g5"))
-# send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move("a1"))
 
-# send_command(KawasakiCommand.HOME)
-# for _ in range(3):
-#     send_command(KawasakiCommand.MOVE_TO_POINT, left_top_corner)
-#     send_command(KawasakiCommand.MOVE_TO_POINT, right_top_corner)
-#     send_command(KawasakiCommand.MOVE_TO_POINT, right_bot_corner)
-#     send_command(KawasakiCommand.MOVE_TO_POINT, left_bot_corner)
-
-
-
+p = False
+while True:
+    move_to = input("Move to: ")
+    if len(move_to) == 2 and move_to[0] in "abcdefgh" and move_to[1] in "12345678":
+        if p:
+            send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move(move_to, 80))
+        else:
+            send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move(move_to))  
+        time.sleep(0.1)
+        print("Done!")
+    elif move_to == "up" and not p:
+        send_command(KawasakiCommand.PICKUP)
+        p = True
+        time.sleep(0.1)
+        print("Done!")
+    elif move_to == "down" and p:
+        p = False
+        send_command(KawasakiCommand.PUTDOWN)
+        time.sleep(0.1)
+        print("Done!")
+    elif move_to == "exit":
+        send_command(KawasakiCommand.MOTOR_OFF)
+        break
+    else:
+        print("Invalid move!")
