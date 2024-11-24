@@ -1,14 +1,18 @@
 import base64
+import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from os.path import exists
+from socket import socket
 from sqlite3 import Connection, Cursor, connect
+from telnetlib import DO, ECHO, IAC, SB, SE, TTYPE, WILL, Telnet  # noqa: S401
 from time import sleep
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
 
+from colorama import init
 import cv2
-import flet
 from chess import Board, Move, svg
 from chess.engine import Limit, SimpleEngine
 from chess.pgn import Game
@@ -56,16 +60,194 @@ if TYPE_CHECKING:
     from cv2.aruco import DetectorParameters, Dictionary
 
 TIMEZONE: Final[BaseTzInfo] = timezone("Europe/Warsaw")
+TIMEOUT: Final[int] = 5
+ENTER: Final[bytes] = b"\n\r\n"
+ENDLINE: Final[bytes] = b"\r\n"
+ENCODING: Final[str] = "ascii"
 
 
 @dataclass
 class MessageType:
-    ERROR = ("[ERROR] ", colors.RED_400)
-    WARNING = ("[WARNING] ", colors.ORANGE_400)
-    INFO = ("[INFO] ", colors.GREEN_400)
-    EXCEPTION = ("[EXCEPTION] ", colors.RED_400)
-    GAME_STATUS = ("[GAME STATUS] ", colors.YELLOW_600)
-    MOVE = ("[MOVE] ", colors.GREEN_400)
+    ERROR: tuple[Literal["[ERROR] "], Literal["red400"]] = ("[ERROR] ", colors.RED_400)
+    WARNING: tuple[Literal["[WARNING] "], Literal["orange400"]] = ("[WARNING] ", colors.ORANGE_400)
+    INFO: tuple[Literal["[INFO] "], Literal["green400"]] = ("[INFO] ", colors.GREEN_400)
+    EXCEPTION: tuple[Literal["[EXCEPTION] "], Literal["red400"]] = ("[EXCEPTION] ", colors.RED_400)
+    GAME_STATUS: tuple[Literal["[GAME STATUS] "], Literal["yellow600"]] = ("[GAME STATUS] ", colors.YELLOW_600)
+    MOVE: tuple[Literal["[MOVE] "], Literal["green400"]] = ("[MOVE] ", colors.GREEN_400)
+
+
+@dataclass
+class RobotCommand:
+    RESET: Final[tuple[str, int]] = ("ERESET", 0)
+    MOTOR_ON: Final[tuple[str, int]] = ("ZPOW ON", 0)
+    MOTOR_OFF: Final[tuple[str, int]] = ("ZPOW OFF", 0)
+    HOME: Final[tuple[str, int]] = ("DO HOME", 1)
+    MOVE_TO_POINT: Final[tuple[str, int]] = ("DO LMOVE", 1)
+    PICKUP: Final[tuple[str, int]] = ("DO LDEPART 80", 1)
+    PUTDOWN: Final[tuple[str, int]] = ("DO LDEPART -80", 1)
+    EXECUTE_PROG: Final[tuple[str, int]] = ("EXE", 2)
+    CONTINUOUS_PATH_ON: Final[tuple[str, int]] = ("CP ON", 0)
+    CONTINUOUS_PATH_OFF: Final[tuple[str, int]] = ("CP OFF", 0)
+
+
+class RobotStatus(Enum):
+    ERROR = 0
+    MOTOR_POWERED = 1
+    REPEAT_MODE = 2
+    TEACH_MODE = 3
+    TEACH_LOCK = 4
+    BUSY = 5
+    HOLD = 6
+    CONTINUOUS_PATH = 7
+
+
+class RobotConnection:
+    __USER: ClassVar[str] = "as"
+
+    def __init__(self, ip: str, port: int) -> None:
+        self.__ip: str = ip
+        self.__port: int = port
+        self.__telnet: Final[Telnet] = Telnet()  # noqa: S312
+        self.__telnet.set_option_negotiation_callback(self.__negotiation)
+        self.connect()
+
+    def connect(self) -> None:
+        self.__telnet.open(self.__ip, self.__port, TIMEOUT)
+        _ = self.__telnet.read_until(b"login: ")
+        self.__telnet.write(self.__USER.encode(ENCODING) + ENDLINE)
+        _ = self.__telnet.read_until(b">")
+
+    def disconnect(self) -> None:
+        self.__telnet.write(b"KILL" + ENDLINE)
+        self.__telnet.write(b"1" + ENDLINE)
+        self.__telnet.write(ENTER)
+        self.__telnet.close()
+
+    @staticmethod
+    def __negotiation(socket: socket, cmd: bytes, opt: bytes) -> None:
+        if cmd == WILL and opt == ECHO:
+            socket.sendall(IAC + DO + opt)
+        elif cmd == DO and opt == TTYPE:
+            socket.sendall(IAC + WILL + TTYPE)
+        elif cmd == SB:
+            socket.sendall(IAC + SB + TTYPE + b"\00" + b"VT100" + b"\00" + IAC + SE)
+
+    @property
+    def telnet(self) -> Telnet:
+        return self.__telnet
+
+
+class JointState:
+    def __init__(self, connection: RobotConnection, jt1: float, jt2: float, jt3: float, jt4: float, jt5: float, jt6: float, name: str) -> None:  # noqa: PLR0917 PLR0913
+        self.__connection: Final[RobotConnection] = connection
+        self.__telnet: Final[Telnet] = connection.telnet
+        self.jt1: float = jt1
+        self.jt2: float = jt2
+        self.jt3: float = jt3
+        self.jt4: float = jt4
+        self.jt5: float = jt5
+        self.jt6: float = jt6
+        self.name: str = name
+        self.create_joint_point()
+        self.X, self.Y, self.Z, self.O, self.A, self.T = map(float, self.translate_joint_to_cartesian()[:6])
+
+    def create_joint_point(self) -> None:
+        self.__telnet.write(f"POINT #{self.name}".encode(ENCODING) + b"\r\n")
+        self.__telnet.write(f"{self.jt1},{self.jt2},{self.jt3},{self.jt4},{self.jt5},{self.jt6}".encode(ENCODING))
+        self.__telnet.write(ENTER)
+
+    def translate_joint_to_cartesian(self) -> list[float]:
+        self.__telnet.write(f"POINT {self.name}=#{self.name}".encode(ENCODING) + ENDLINE)
+        time.sleep(0.1)  # FIXME
+        x: list[float] = [
+            float(i) for i in filter(None, self.__telnet.read_very_eager().decode(ENCODING).split(f"{self.name}=#{self.name}")[1].splitlines()[2].split(" "))
+        ]
+        self.__telnet.write(ENTER)
+        return x
+
+    def shift_point(self, x: float, y: float, z: float, name: str) -> "JointState":
+        self.__telnet.write(f"POINT {name} = SHIFT({self.name} by {x},{y},{z})".encode(ENCODING) + ENDLINE)
+        self.__telnet.write(ENTER)
+        self.__telnet.write(f"POINT #{name}={name}".encode(ENCODING) + ENDLINE)
+        time.sleep(0.1)  # FIXME
+        jt: list[float] = [
+            float(i) for i in filter(None, self.__telnet.read_very_eager().decode(ENCODING).split(f"#{name}={name}")[1].splitlines()[2].split(" "))
+        ]
+        self.__telnet.write(ENTER)
+        return JointState(self.__connection, jt[0], jt[1], jt[2], jt[3], jt[4], jt[5], name)
+
+
+class RobotControl:
+    __SPEED: ClassVar[int] = 100
+
+    def __init__(self, connection: RobotConnection) -> None:
+        self.__telnet: Final[Telnet] = connection.telnet
+        self.__home: Final[JointState] = JointState(connection, 19.175, 34.457, -137.455, 2.404, -8.782, -69.342, "HOME")
+        self.initial_status: dict[RobotStatus, bool] = self.get_robot_status()
+        if self.initial_status[RobotStatus.ERROR]:
+            self.send_command(RobotCommand.RESET)
+        if self.initial_status[RobotStatus.CONTINUOUS_PATH]:
+            self.send_command(RobotCommand.CONTINUOUS_PATH_OFF)
+        if not self.initial_status[RobotStatus.MOTOR_POWERED]:
+            self.send_command(RobotCommand.MOTOR_ON)
+        self.write_program("""SPEED 100 ALWAYS\n""", "chess_program")
+        self.send_command(RobotCommand.EXECUTE_PROG, "chess_program")
+
+    def calculate_chessboard_point_to_move(self, chessboard_uci: str, z: float = 0.0) -> JointState:
+        x: int = ord(chessboard_uci[0]) - ord("a")
+        y: int = int(chessboard_uci[1]) - 1
+        return self.__home.shift_point(x * -40, y * 40, z, chessboard_uci)
+
+    def get_robot_status(self) -> dict[RobotStatus, bool]:
+        self.__telnet.write(b"SWITCH" + ENDLINE)
+        raw_msg: str = self.__telnet.read_until(b"Press SPACE key to continue").decode(ENCODING).split("SWITCH\r")[1]
+        raw_data: list[str | Any] = [s.replace(" ", "").replace("\n", "").replace("*", "").replace("\r", "") for s in re.split(" ON| OFF", raw_msg)]
+        raw_data.pop()
+        status_data: dict[str, bool] = {key: value == " ON" for key, value in zip(raw_data, re.findall(" ON| OFF", raw_msg), strict=False)}
+        time.sleep(0.1)  # FIXME
+        self.__telnet.write(ENTER)
+        return {
+            RobotStatus.BUSY: status_data["CS"],
+            RobotStatus.ERROR: status_data["ERROR"],
+            RobotStatus.MOTOR_POWERED: status_data["POWER"],
+            RobotStatus.REPEAT_MODE: status_data["REPEAT"],
+            RobotStatus.TEACH_MODE: not status_data["REPEAT"],
+            RobotStatus.TEACH_LOCK: status_data["TEACH_LOCK"],
+            RobotStatus.HOLD: not status_data["RUN"],
+            RobotStatus.CONTINUOUS_PATH: status_data["CP"],
+        }
+
+    def write_program(self, program: str, name: str) -> None:
+        self.__telnet.write(b"KILL" + ENDLINE)
+        self.__telnet.write(b"1" + ENDLINE)
+        self.__telnet.write(ENTER)
+        self.__telnet.write(f"DELETE {name}".encode(ENCODING) + ENDLINE)
+        self.__telnet.write(b"1" + ENDLINE)
+        self.__telnet.write(ENTER)
+        self.__telnet.write(f"EDIT {name}, 1".encode(ENCODING) + ENDLINE)
+        for line in program.splitlines():
+            self.__telnet.write(line.encode(ENCODING) + ENDLINE)
+        self.__telnet.write(b"E")  # FIXME
+        self.__telnet.write(ENTER)
+        time.sleep(0.1)  # FIXME
+
+    def send_command(self, command: tuple[str, int], arg: JointState | str | None = None) -> None:
+        command_encoded: bytes = command[0].encode(ENCODING)
+        match command[1]:
+            case 0:
+                self.__telnet.write(command_encoded + ENDLINE)
+                _ = self.__telnet.read_until(b">")
+            case 1:
+                if type(arg) is JointState:
+                    self.__telnet.write(command_encoded + f" #{arg.name}".encode(ENCODING) + ENDLINE)
+                    _ = self.__telnet.read_until(b">")
+                else:
+                    self.__telnet.write(command_encoded + ENDLINE)
+                    _ = self.__telnet.read_until(b"DO motion completed.")
+            case 2:
+                self.__telnet.write(command_encoded + f" {arg}".encode(ENCODING) + ENDLINE)
+                _ = self.__telnet.read_until(b"Program completed.")
+        time.sleep(0.5)  # FIXME
 
 
 class Logger:
@@ -185,7 +367,7 @@ class ChessDatabase:
             """
             INSERT INTO chess_games(white_player, black_player, date, game_duration, result_id,stockfish_skill_level ,move_count, FEN_end_position, PGN_game_sequence)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            """,  # noqa: E501
             (
                 players[0],
                 players[1],
@@ -276,6 +458,8 @@ class GameLogic:
     def __init__(self, board_width: int, board_height: int, logger: Logger, database: ChessDatabase, page: Page) -> None:
         self.logger: Logger = logger
         self.database: ChessDatabase = database
+        self.connection: RobotConnection = RobotConnection("127.0.0.1", 9105)
+        self.robot: RobotControl = RobotControl(self.connection)
         self.__page: Page = page
         self.__game_status: bool = False
         self.__stockfish_skill_level: int = 20
