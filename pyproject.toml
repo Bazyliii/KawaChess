@@ -16,7 +16,7 @@ dependencies = [
     "pytz >= 2024.2",
     "flet >= 0.24.1",
     "opencv-python >= 4.10.0.84",
-    "flet_timer" >= 0.0.13
+    "flet_timer >= 0.0.13",
 ]
 
 [tool.ruff]

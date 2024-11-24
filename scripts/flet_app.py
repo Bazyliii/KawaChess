@@ -1,4 +1,5 @@
 import base64
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from os.path import exists
@@ -57,7 +58,8 @@ if TYPE_CHECKING:
 TIMEZONE: Final[BaseTzInfo] = timezone("Europe/Warsaw")
 
 
-class MessageType(Enum):
+@dataclass
+class MessageType:
     ERROR = ("[ERROR] ", colors.RED_400)
     WARNING = ("[WARNING] ", colors.ORANGE_400)
     INFO = ("[INFO] ", colors.GREEN_400)
@@ -76,15 +78,15 @@ class Logger:
             divider_thickness=1,
         )
 
-    def __call__(self, msg_type: MessageType, text: str | Exception) -> None:
+    def __call__(self, msg_type: tuple[str, str], text: str | Exception) -> None:
         self.__log_container.controls.append(
             Text(
                 spans=[
                     TextSpan(datetime.now(TIMEZONE).strftime("%H:%M:%S "), TextStyle(color=colors.WHITE38)),
-                    TextSpan(msg_type.value[0], TextStyle(weight=FontWeight.BOLD)),
+                    TextSpan(msg_type[0], TextStyle(weight=FontWeight.BOLD)),
                     TextSpan(str(text)),
                 ],
-                color=msg_type.value[1],
+                color=msg_type[1],
             ),
         )
         self.__log_container.update()
@@ -171,7 +173,12 @@ class ChessDatabase:
         return result
 
     def add_game_data(
-        self, board: Board, start_datetime: datetime, duration: timedelta, stockfish_skill_level: int, players: tuple[str, ...] = ("Stockfish", "Player")
+        self,
+        board: Board,
+        start_datetime: datetime,
+        duration: timedelta,
+        stockfish_skill_level: int,
+        players: tuple[str, ...] = ("Stockfish", "Player"),
     ) -> None:
         game: Game = Game().from_board(board)
         self.cursor.execute(
@@ -346,7 +353,11 @@ class GameLogic:
         self.stop_game()
         if self.__board.is_game_over():
             self.database.add_game_data(
-                self.__board, self.__start_datetime, self.__game_duration, self.__game_stockfish_skill_lvl, ("Stockfish", self.__player_name)
+                self.__board,
+                self.__start_datetime,
+                self.__game_duration,
+                self.__game_stockfish_skill_lvl,
+                ("Stockfish", self.__player_name),
             )
             self.logger(MessageType.INFO, "Game data saved to database!")
 

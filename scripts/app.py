@@ -40,17 +40,18 @@ SIMULATION: Final[bool] = False
 TELNET: Final[Telnet] = Telnet()  # noqa: S312
 TELNET.set_option_negotiation_callback(negotiation)
 if SIMULATION:
-    IP: Final[str] = "127.0.0.1"
-    PORT: Final[int] = 9105
+    IP: str = "127.0.0.1"
+    PORT: int = 9105
 else:
-    IP: Final[str] = "192.168.1.155"
-    PORT: Final[int] = 23
+    IP: str = "192.168.1.155"
+    PORT: int = 23
 USER: Final[str] = "as"
 TIMEOUT: Final[int] = 5
 SPEED: Final[int] = 100
 ENTER: Final[bytes] = b"\n\r\n"
 ENDLINE: Final[bytes] = b"\r\n"
 ENCODING: Final[str] = "ascii"
+
 
 @dataclass
 class KawasakiCommand:
@@ -65,6 +66,7 @@ class KawasakiCommand:
     CONTINUOUS_PATH_ON: tuple[str, int] = ("CP ON", 0)
     CONTINUOUS_PATH_OFF: tuple[str, int] = ("CP OFF", 0)
 
+
 class KawasakiStatus(Enum):
     ERROR = 0
     MOTOR_POWERED = 1
@@ -74,7 +76,6 @@ class KawasakiStatus(Enum):
     BUSY = 5
     HOLD = 6
     CONTINUOUS_PATH = 7
-
 
 
 class KawasakiStatusError(Exception):
@@ -104,7 +105,9 @@ class JointState:
     def translate_joint_to_cartesian(self) -> list[float]:
         TELNET.write(f"POINT {self.name}=#{self.name}".encode(ENCODING) + ENDLINE)
         time.sleep(0.1)
-        x: list[float] = [float(i) for i in filter(None, TELNET.read_very_eager().decode(ENCODING).split(f"{self.name}=#{self.name}")[1].splitlines()[2].split(" "))]
+        x: list[float] = [
+            float(i) for i in filter(None, TELNET.read_very_eager().decode(ENCODING).split(f"{self.name}=#{self.name}")[1].splitlines()[2].split(" "))
+        ]
         TELNET.write(ENTER)
         return x
 
@@ -142,6 +145,7 @@ def send_command(command: tuple[str, int], arg: JointState | str | None = None) 
             _ = TELNET.read_until(b"Program completed.")
     time.sleep(0.5)
 
+
 # def get_robot_status() -> dict[KawasakiStatus, bool]:
 #     TELNET.write(b"STATUS\r\n")
 #     raw_status: str = TELNET.read_until(b">").decode(ENCODING).split("STATUS\r")[1]
@@ -178,7 +182,7 @@ def get_robot_status() -> dict[KawasakiStatus, bool]:
     status_data = {key: value == " ON" for key, value in zip(raw_data, re.findall(" ON| OFF", message))}
     time.sleep(0.1)
     TELNET.write(ENTER)
-    return{
+    return {
         KawasakiStatus.BUSY: status_data["CS"],
         KawasakiStatus.ERROR: status_data["ERROR"],
         KawasakiStatus.MOTOR_POWERED: status_data["POWER"],
@@ -188,6 +192,7 @@ def get_robot_status() -> dict[KawasakiStatus, bool]:
         KawasakiStatus.HOLD: not status_data["RUN"],
         KawasakiStatus.CONTINUOUS_PATH: status_data["CP"],
     }
+
 
 connect_to_robot()
 status: dict[KawasakiStatus, bool] = get_robot_status()
@@ -224,87 +229,17 @@ def calculate_chessboard_point_to_move(chessboard_uci: str, z: float = 0.0) -> J
     y: int = int(chessboard_uci[1]) - 1
     return left_top_corner.shift_point(x * -40, y * 40, z, chessboard_uci)
 
-# moves: list[str] = [
-#     "a1",
-#     "a2",
-#     "a3",
-#     "a4",
-#     "a5",
-#     "a6",
-#     "a7",
-#     "a8",
-#     "b1",
-#     "b2",
-#     "b3",
-#     "b4",
-#     "b5",
-#     "b6",
-#     "b7",
-#     "b8",
-#     "c1",
-#     "c2",
-#     "c3",
-#     "c4",
-#     "c5",
-#     "c6",
-#     "c7",
-#     "c8",
-#     "d1",
-#     "d2",
-#     "d3",
-#     "d4",
-#     "d5",
-#     "d6",
-#     "d7",
-#     "d8",
-#     "e1",
-#     "e2",
-#     "e3",
-#     "e4",
-#     "e5",
-#     "e6",
-#     "e7",
-#     "e8",
-#     "f1",
-#     "f2",
-#     "f3",
-#     "f4",
-#     "f5",
-#     "f6",
-#     "f7",
-#     "f8",
-#     "g1",
-#     "g2",
-#     "g3",
-#     "g4",
-#     "g5",
-#     "g6",
-#     "g7",
-#     "g8",
-#     "h1",
-#     "h2",
-#     "h3",
-#     "h4",
-#     "h5",
-#     "h6",
-#     "h7",    
-#     "h8",
-# ]
-
-# for move in moves:
-#     calculate_chessboard_point_to_move(move)
-
 
 send_command(KawasakiCommand.EXECUTE_PROG, "temp_program")
 
 p = False
 while True:
-    move_to = input("Move to: ")
+    move_to: str = input("Move to: ")
     if len(move_to) == 2 and move_to[0] in "abcdefgh" and move_to[1] in "12345678":
         if p:
             send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move(move_to, 80))
         else:
-            send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move(move_to))  
+            send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move(move_to))
         time.sleep(0.1)
         print("Done!")
     elif move_to == "up" and not p:
