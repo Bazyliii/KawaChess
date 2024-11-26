@@ -65,7 +65,7 @@ ENDLINE: Final[bytes] = b"\r\n"
 ENCODING: Final[str] = "ascii"
 
 
-@dataclass
+@dataclass(frozen=True)
 class MessageType:
     ERROR: tuple[Literal["[ERROR] "], Literal["red400"]] = ("[ERROR] ", colors.RED_400)
     WARNING: tuple[Literal["[WARNING] "], Literal["orange400"]] = ("[WARNING] ", colors.ORANGE_400)
@@ -75,7 +75,7 @@ class MessageType:
     MOVE: tuple[Literal["[MOVE] "], Literal["green400"]] = ("[MOVE] ", colors.GREEN_400)
 
 
-@dataclass
+@dataclass(frozen=True)
 class RobotCommand:
     RESET: Final[tuple[str, int]] = ("ERESET", 0)
     MOTOR_ON: Final[tuple[str, int]] = ("ZPOW ON", 0)
