@@ -65,6 +65,10 @@ class KawasakiCommand:
     EXECUTE_PROG: tuple[str, int] = ("EXE", 2)
     CONTINUOUS_PATH_ON: tuple[str, int] = ("CP ON", 0)
     CONTINUOUS_PATH_OFF: tuple[str, int] = ("CP OFF", 0)
+    REPEAT_ONCE_OFF: tuple[str, int] = ("REP_ONCE OFF", 0)
+    REPEAT_ONCE_ON: tuple[str, int] = ("REP_ONCE ON", 0)
+    STEP_ONCE_OFF: tuple[str, int] = ("STP_ONCE OFF", 0)
+    STEP_ONCE_ON: tuple[str, int] = ("STP_ONCE ON", 0)
 
 
 class KawasakiStatus(Enum):
@@ -76,6 +80,8 @@ class KawasakiStatus(Enum):
     BUSY = 5
     HOLD = 6
     CONTINUOUS_PATH = 7
+    REPEAT_ONCE = 8
+    STEP_ONCE = 9
 
 
 class KawasakiStatusError(Exception):
@@ -191,6 +197,8 @@ def get_robot_status() -> dict[KawasakiStatus, bool]:
         KawasakiStatus.TEACH_LOCK: status_data["TEACH_LOCK"],
         KawasakiStatus.HOLD: not status_data["RUN"],
         KawasakiStatus.CONTINUOUS_PATH: status_data["CP"],
+        KawasakiStatus.REPEAT_ONCE: status_data["REP_ONCE"],
+        KawasakiStatus.STEP_ONCE: status_data["STP_ONCE"],
     }
 
 
@@ -201,6 +209,10 @@ if status[KawasakiStatus.TEACH_MODE]:
     raise KawasakiStatusError(KawasakiStatus.TEACH_MODE.name)
 if status[KawasakiStatus.TEACH_LOCK]:
     raise KawasakiStatusError(KawasakiStatus.TEACH_LOCK.name)
+if status[KawasakiStatus.REPEAT_ONCE]:
+    send_command(KawasakiCommand.REPEAT_ONCE_OFF)
+if status[KawasakiStatus.STEP_ONCE]:
+    send_command(KawasakiCommand.STEP_ONCE_OFF)
 if status[KawasakiStatus.HOLD]:
     raise KawasakiStatusError(KawasakiStatus.HOLD.name)
 if status[KawasakiStatus.ERROR]:
@@ -215,10 +227,15 @@ if not status[KawasakiStatus.MOTOR_POWERED]:
 
 prog: str = """
 SPEED 100 ALWAYS\n
+HOME\n
+DRIVE 1, 0, 100\n
+HOME\n
 """
 write_program_to_robot(prog, "temp_program")
 
-left_top_corner: JointState = JointState(19.175, 34.457, -137.455, 2.404, -8.782, -69.342, "left_top_corner")
+# left_top_corner: JointState = JointState(19.175, 34.457, -137.455, 2.404, -8.782, -69.342, "left_top_corner")
+left_top_corner: JointState = JointState(9.487, 68.678, -53.954, -179.435, 57.988, -237.583, "left_top_corner")
+
 # right_top_corner: JointState = left_top_corner.shift_point(-280, 0, 0, "right_top_corner")
 # right_bot_corner: JointState = right_top_corner.shift_point(0, 280, 0, "right_bot_corner")
 # left_bot_corner: JointState = right_bot_corner.shift_point(280, 0, 0, "left_bot_corner")
@@ -227,33 +244,33 @@ left_top_corner: JointState = JointState(19.175, 34.457, -137.455, 2.404, -8.782
 def calculate_chessboard_point_to_move(chessboard_uci: str, z: float = 0.0) -> JointState:
     x: int = ord(chessboard_uci[0]) - ord("a")
     y: int = int(chessboard_uci[1]) - 1
-    return left_top_corner.shift_point(x * -40, y * 40, z, chessboard_uci)
+    return left_top_corner.shift_point(x * -40, y * -40, z, chessboard_uci)
 
 
 send_command(KawasakiCommand.EXECUTE_PROG, "temp_program")
 
-p = False
-while True:
-    move_to: str = input("Move to: ")
-    if len(move_to) == 2 and move_to[0] in "abcdefgh" and move_to[1] in "12345678":
-        if p:
-            send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move(move_to, 80))
-        else:
-            send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move(move_to))
-        time.sleep(0.1)
-        print("Done!")
-    elif move_to == "up" and not p:
-        send_command(KawasakiCommand.PICKUP)
-        p = True
-        time.sleep(0.1)
-        print("Done!")
-    elif move_to == "down" and p:
-        p = False
-        send_command(KawasakiCommand.PUTDOWN)
-        time.sleep(0.1)
-        print("Done!")
-    elif move_to == "exit":
-        send_command(KawasakiCommand.MOTOR_OFF)
-        break
-    else:
-        print("Invalid move!")
+# p = False
+# while True:
+#     move_to: str = input("Move to: ")
+#     if len(move_to) == 2 and move_to[0] in "abcdefgh" and move_to[1] in "12345678":
+#         if p:
+#             send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move(move_to, 80))
+#         else:
+#             send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move(move_to))
+#         time.sleep(0.1)
+#         print("Done!")
+#     elif move_to == "up" and not p:
+#         send_command(KawasakiCommand.PICKUP)
+#         p = True
+#         time.sleep(0.1)
+#         print("Done!")
+#     elif move_to == "down" and p:
+#         p = False
+#         send_command(KawasakiCommand.PUTDOWN)
+#         time.sleep(0.1)
+#         print("Done!")
+#     elif move_to == "exit":
+#         send_command(KawasakiCommand.MOTOR_OFF)
+#         break
+#     else:
+#         print("Invalid move!")

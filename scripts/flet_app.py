@@ -11,7 +11,6 @@ from telnetlib import DO, ECHO, IAC, SB, SE, TTYPE, WILL, Telnet  # noqa: S401
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
 
-from colorama import init
 import cv2
 from chess import Board, Move, svg
 from chess.engine import Limit, SimpleEngine
@@ -152,7 +151,7 @@ class JointState:
         self.X, self.Y, self.Z, self.O, self.A, self.T = map(float, self.translate_joint_to_cartesian()[:6])
 
     def create_joint_point(self) -> None:
-        self.__telnet.write(f"POINT #{self.name}".encode(ENCODING) + b"\r\n")
+        self.__telnet.write(f"POINT #{self.name}".encode(ENCODING) + ENDLINE)
         self.__telnet.write(f"{self.jt1},{self.jt2},{self.jt3},{self.jt4},{self.jt5},{self.jt6}".encode(ENCODING))
         self.__telnet.write(ENTER)
 
@@ -182,7 +181,6 @@ class RobotControl:
 
     def __init__(self, connection: RobotConnection) -> None:
         self.__telnet: Final[Telnet] = connection.telnet
-        self.__home: Final[JointState] = JointState(connection, 19.175, 34.457, -137.455, 2.404, -8.782, -69.342, "HOME")
         self.initial_status: dict[RobotStatus, bool] = self.get_robot_status()
         if self.initial_status[RobotStatus.ERROR]:
             self.send_command(RobotCommand.RESET)
@@ -192,11 +190,12 @@ class RobotControl:
             self.send_command(RobotCommand.MOTOR_ON)
         self.write_program("""SPEED 100 ALWAYS\n""", "chess_program")
         self.send_command(RobotCommand.EXECUTE_PROG, "chess_program")
+        self.__home: Final[JointState] = JointState(connection, 9.487, 68.678, -53.954, -179.435, 57.988, -237.583, "chess_app_temp_point")
 
     def calculate_chessboard_point_to_move(self, chessboard_uci: str, z: float = 0.0) -> JointState:
         x: int = ord(chessboard_uci[0]) - ord("a")
         y: int = int(chessboard_uci[1]) - 1
-        return self.__home.shift_point(x * -40, y * 40, z, chessboard_uci)
+        return self.__home.shift_point(x * -40, y * -40, z, chessboard_uci)
 
     def get_robot_status(self) -> dict[RobotStatus, bool]:
         self.__telnet.write(b"SWITCH" + ENDLINE)
@@ -206,16 +205,30 @@ class RobotControl:
         status_data: dict[str, bool] = {key: value == " ON" for key, value in zip(raw_data, re.findall(" ON| OFF", raw_msg), strict=False)}
         time.sleep(0.1)  # FIXME
         self.__telnet.write(ENTER)
-        return {
-            RobotStatus.BUSY: status_data["CS"],
-            RobotStatus.ERROR: status_data["ERROR"],
-            RobotStatus.MOTOR_POWERED: status_data["POWER"],
-            RobotStatus.REPEAT_MODE: status_data["REPEAT"],
-            RobotStatus.TEACH_MODE: not status_data["REPEAT"],
-            RobotStatus.TEACH_LOCK: status_data["TEACH_LOCK"],
-            RobotStatus.HOLD: not status_data["RUN"],
-            RobotStatus.CONTINUOUS_PATH: status_data["CP"],
+
+        status: dict[RobotStatus, bool] = {
+            RobotStatus.BUSY: False,
+            RobotStatus.ERROR: False,
+            RobotStatus.MOTOR_POWERED: False,
+            RobotStatus.REPEAT_MODE: False,
+            RobotStatus.TEACH_MODE: False,
+            RobotStatus.TEACH_LOCK: False,
+            RobotStatus.HOLD: False,
+            RobotStatus.CONTINUOUS_PATH: False,
         }
+        try:
+            status[RobotStatus.BUSY] = status_data["CS"]
+            status[RobotStatus.ERROR] = status_data["ERROR"]
+            status[RobotStatus.MOTOR_POWERED] = status_data["POWER"]
+            status[RobotStatus.REPEAT_MODE] = status_data["REPEAT"]
+            status[RobotStatus.TEACH_MODE] = not status_data["REPEAT"]
+            status[RobotStatus.TEACH_LOCK] = status_data["TEACH_LOCK"]
+            status[RobotStatus.HOLD] = not status_data["RUN"]
+            status[RobotStatus.CONTINUOUS_PATH] = status_data["CP"]
+        except KeyError:
+            pass
+        return status
+
 
     def write_program(self, program: str, name: str) -> None:
         self.__telnet.write(b"KILL" + ENDLINE)
@@ -227,7 +240,7 @@ class RobotControl:
         self.__telnet.write(f"EDIT {name}, 1".encode(ENCODING) + ENDLINE)
         for line in program.splitlines():
             self.__telnet.write(line.encode(ENCODING) + ENDLINE)
-        self.__telnet.write(b"E")  # FIXME
+        self.__telnet.write(b"E")
         self.__telnet.write(ENTER)
         time.sleep(0.1)  # FIXME
 
@@ -458,7 +471,7 @@ class GameLogic:
     def __init__(self, board_width: int, board_height: int, logger: Logger, database: ChessDatabase, page: Page) -> None:
         self.logger: Logger = logger
         self.database: ChessDatabase = database
-        self.connection: RobotConnection = RobotConnection("127.0.0.1", 9105)
+        self.connection: RobotConnection = RobotConnection("192.168.1.155", 23)
         self.robot: RobotControl = RobotControl(self.connection)
         self.__page: Page = page
         self.__game_status: bool = False
@@ -516,7 +529,7 @@ class GameLogic:
         self.logger(MessageType.GAME_STATUS, "Game started!")
         self.__game_status = True
         self.__engine: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
-        self.__engine.configure({"Threads": "4", "Hash": "2048", "Skill Level": self.__stockfish_skill_level})
+        self.__engine.configure({"Threads": "2", "Hash": "512", "Skill Level": self.__stockfish_skill_level})
         self.__game_stockfish_skill_lvl = self.__stockfish_skill_level
         self.__game_duration = timedelta()
         # "UCI_LimitStrength": "true", "UCI_Elo": "1320",
@@ -527,13 +540,36 @@ class GameLogic:
             if engine_move is None or engine_move not in self.__board.legal_moves:
                 self.logger(MessageType.ERROR, "No move found!")
                 continue
-            from_square: int = engine_move.from_square  # <- Numeric notation (0 in bottom-left corner, 63 in top-right corner)
-            to_square: int = engine_move.to_square  # <- Numeric notation (0 in bottom-left corner, 63 in top-right corner)
             if self.__game_status:
                 self.__board.push(engine_move)
+                self.logger(MessageType.MOVE, f"Engine: {engine_move.uci()}")
+                robot_move_from = self.robot.calculate_chessboard_point_to_move(engine_move.uci()[:2], 80)
+                robot_move_to = self.robot.calculate_chessboard_point_to_move(engine_move.uci()[2:], 80)
+                program: str = f"""SPEED 50 ALWAYS\nHMOVE #{robot_move_from.name}\nLDEPART -80\nLDEPART 80\nHMOVE #{robot_move_to.name}\nLDEPART -80\nLDEPART 80\n"""
+                print(program)
+                self.robot.write_program(program, "chess_move2")
+                time.sleep(1)
+                self.robot.send_command(RobotCommand.EXECUTE_PROG, "chess_move2")
+                # self.robot.send_command(RobotCommand.MOVE_TO_POINT, robot_move_from)
+                # while self.robot.get_robot_status()[RobotStatus.BUSY]:
+                #     time.sleep(1)
+                # self.robot.send_command(RobotCommand.PUTDOWN)
+                # while self.robot.get_robot_status()[RobotStatus.BUSY]:
+                #     time.sleep(1)
+                # self.robot.send_command(RobotCommand.PICKUP)
+                # while self.robot.get_robot_status()[RobotStatus.BUSY]:
+                #     time.sleep(1)
+                # self.robot.send_command(RobotCommand.MOVE_TO_POINT, robot_move_to)
+                # while self.robot.get_robot_status()[RobotStatus.BUSY]:
+                #     time.sleep(1)
+                # self.robot.send_command(RobotCommand.PUTDOWN)
+                # while self.robot.get_robot_status()[RobotStatus.BUSY]:
+                #     time.sleep(1)
+                # self.robot.send_command(RobotCommand.PICKUP)
+                # while self.robot.get_robot_status()[RobotStatus.BUSY]:
+                #     time.sleep(1)
                 self.__chess_board_svg.src = svg.board(self.__board)
                 self.__page.update()
-                self.logger(MessageType.MOVE, f"Engine: {engine_move.uci()}")
         self.stop_game()
         if self.__board.is_game_over():
             self.database.add_game_data(
@@ -550,6 +586,7 @@ class GameLogic:
             return
         self.__game_status = False
         self.__engine.quit()
+        self.robot.send_command(RobotCommand.HOME)
         self.logger(MessageType.GAME_STATUS, "Game stopped!")
         self.__page.update()
 
