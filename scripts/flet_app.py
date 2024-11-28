@@ -3,7 +3,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from enum import Enum
+from enum import Enum, auto
 from os.path import exists
 from socket import socket
 from sqlite3 import Connection, Cursor, connect
@@ -94,16 +94,16 @@ class RobotCommand:
 
 
 class RobotStatus(Enum):
-    ERROR = 0
-    MOTOR_POWERED = 1
-    REPEAT_MODE = 2
-    TEACH_MODE = 3
-    TEACH_LOCK = 4
-    BUSY = 5
-    HOLD = 6
-    CONTINUOUS_PATH = 7
-    REPEAT_ONCE = 8
-    STEP_ONCE = 9
+    ERROR = auto()
+    MOTOR_POWERED = auto()
+    REPEAT_MODE = auto()
+    TEACH_MODE = auto()
+    TEACH_LOCK = auto()
+    BUSY = auto()
+    HOLD = auto()
+    CONTINUOUS_PATH = auto()
+    REPEAT_ONCE = auto()
+    STEP_ONCE = auto()
 
 
 class RobotConnection:
@@ -469,7 +469,7 @@ class GameLogic:
     def __init__(self, board_width: int, board_height: int, logger: Logger, database: ChessDatabase, page: Page) -> None:
         self.logger: Logger = logger
         self.database: ChessDatabase = database
-        self.connection: RobotConnection = RobotConnection("192.168.1.155", 23)
+        self.connection: RobotConnection = RobotConnection("127.0.0.1", 9105)
         self.robot: RobotControl = RobotControl(self.connection, self.logger)
         self.__page: Page = page
         self.__game_status: bool = False
