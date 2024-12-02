@@ -22,35 +22,15 @@ import re
 import time
 from dataclasses import dataclass
 from enum import Enum
-from socket import socket
-from telnetlib import DO, ECHO, IAC, SB, SE, TTYPE, WILL, Telnet  # noqa: S401
 from typing import Final
 
+from simple_telnet import SimpleTelnet
 
-def negotiation(socket: socket, cmd: bytes, opt: bytes) -> None:
-    if cmd == WILL and opt == ECHO:
-        socket.sendall(IAC + DO + opt)
-    elif cmd == DO and opt == TTYPE:
-        socket.sendall(IAC + WILL + TTYPE)
-    elif cmd == SB:
-        socket.sendall(IAC + SB + TTYPE + b"\00" + b"VT100" + b"\00" + IAC + SE)
+TELNET: Final[SimpleTelnet] = SimpleTelnet("192.168.1.155/23")
 
-
-SIMULATION: Final[bool] = False
-TELNET: Final[Telnet] = Telnet()  # noqa: S312
-TELNET.set_option_negotiation_callback(negotiation)
-if SIMULATION:
-    IP: str = "127.0.0.1"
-    PORT: int = 9105
-else:
-    IP: str = "192.168.1.155"
-    PORT: int = 23
 USER: Final[str] = "as"
-TIMEOUT: Final[int] = 5
 SPEED: Final[int] = 100
-ENTER: Final[bytes] = b"\n\r\n"
-ENDLINE: Final[bytes] = b"\r\n"
-ENCODING: Final[str] = "ascii"
+ENTER: Final[bytes] = "\n"
 
 
 @dataclass
@@ -88,104 +68,72 @@ class KawasakiStatusError(Exception):
     pass
 
 
-class JointState:
-    def __init__(self, jt1: float, jt2: float, jt3: float, jt4: float, jt5: float, jt6: float, name: str) -> None:  # noqa: PLR0917 PLR0913
-        self.jt1: float = jt1
-        self.jt2: float = jt2
-        self.jt3: float = jt3
-        self.jt4: float = jt4
-        self.jt5: float = jt5
-        self.jt6: float = jt6
+class CartesianState:
+    def __init__(self, name: str, x: float, y: float, z: float, o: float, a: float, t: float) -> None:
         self.name: str = name
-        self.create_joint_point()
-        self.X, self.Y, self.Z, self.O, self.A, self.T = map(float, self.translate_joint_to_cartesian()[:6])
+        self.x: float = x
+        self.y: float = y
+        self.z: float = z
+        self.o: float = o
+        self.a: float = a
+        self.t: float = t
+        self.__create_point()
 
-    def __bytes__(self) -> bytes:
-        return f"{self.jt1},{self.jt2},{self.jt3},{self.jt4},{self.jt5},{self.jt6}".encode(ENCODING)
-
-    def create_joint_point(self) -> None:
-        TELNET.write(f"POINT #{self.name}".encode(ENCODING) + ENDLINE)
-        TELNET.write(bytes(self))
+    def __create_point(self) -> "CartesianState":
+        TELNET.write(f"POINT {self.name}")
+        TELNET.write(f"{self.x},{self.y},{self.z},{self.o},{self.a},{self.t}")
         TELNET.write(ENTER)
+        TELNET.clear_queue()
 
-    def translate_joint_to_cartesian(self) -> list[float]:
-        TELNET.write(f"POINT {self.name}=#{self.name}".encode(ENCODING) + ENDLINE)
-        time.sleep(0.1)
-        x: list[float] = [
-            float(i) for i in filter(None, TELNET.read_very_eager().decode(ENCODING).split(f"{self.name}=#{self.name}")[1].splitlines()[2].split(" "))
-        ]
+    def shift_point(self, name: str, x: float, y: float, z: float) -> "CartesianState":
+        TELNET.write(f"POINT {name} = SHIFT({self.name} by {x},{y},{z})")
         TELNET.write(ENTER)
-        return x
-
-    def shift_point(self, x: float, y: float, z: float, name: str) -> "JointState":
-        TELNET.write(f"POINT {name} = SHIFT({self.name} by {x},{y},{z})".encode(ENCODING) + ENDLINE)
-        TELNET.write(ENTER)
-        TELNET.write(f"POINT #{name}={name}".encode(ENCODING) + ENDLINE)
-        time.sleep(0.1)
-        jt: list[float] = [float(i) for i in filter(None, TELNET.read_very_eager().decode(ENCODING).split(f"#{name}={name}")[1].splitlines()[2].split(" "))]
-        TELNET.write(ENTER)
-        return JointState(jt[0], jt[1], jt[2], jt[3], jt[4], jt[5], name)
-
+        xx = list(map(float, filter(None, TELNET.read_until_match("Change?").splitlines()[-2].split(" "))))[:6]
+        return CartesianState(name, xx[0], xx[1], xx[2], xx[3], xx[4], xx[5])
 
 def connect_to_robot() -> None:
-    TELNET.open(IP, PORT, TIMEOUT)
-    _ = TELNET.read_until(b"login: ")
-    TELNET.write(USER.encode(ENCODING) + ENDLINE)
-    _ = TELNET.read_until(b">")
+    _ = TELNET.read_until_match("login: ")
+    TELNET.write(USER)
+    _ = TELNET.read_until_match(">")
 
 
-def send_command(command: tuple[str, int], arg: JointState | str | None = None) -> None:
-    command_encoded: bytes = command[0].encode(ENCODING)
+def send_command(command: tuple[str, int], arg: CartesianState | str | None = None) -> None:
     match command[1]:
         case 0:
-            TELNET.write(command_encoded + ENDLINE)
-            _ = TELNET.read_until(b">")
+            TELNET.write(command[0])
+            _ = TELNET.read_until_match(">")
         case 1:
-            if type(arg) is JointState:
-                TELNET.write(command_encoded + f" #{arg.name}".encode(ENCODING) + ENDLINE)
+            if type(arg) is CartesianState:
+                TELNET.write(command[0] + f" {arg.name}")
             else:
-                TELNET.write(command_encoded + ENDLINE)
-            _ = TELNET.read_until(b"DO motion completed.")
+                TELNET.write(command[0])
+            _ = TELNET.read_until_match("DO motion completed.")
         case 2:
-            TELNET.write(command_encoded + f" {arg}".encode(ENCODING) + ENDLINE)
-            _ = TELNET.read_until(b"Program completed.")
+            TELNET.write(command[0] + f" {arg}")
+            _ = TELNET.read_until_match("Program completed.")
     time.sleep(0.5)
 
-
-# def get_robot_status() -> dict[KawasakiStatus, bool]:
-#     TELNET.write(b"STATUS\r\n")
-#     raw_status: str = TELNET.read_until(b">").decode(ENCODING).split("STATUS\r")[1]
-#     return {
-#         KawasakiStatus.ERROR: "error" in raw_status,
-#         KawasakiStatus.MOTOR_POWERED: "Motor power OFF" not in raw_status,
-#         KawasakiStatus.REPEAT_MODE: "REPEAT mode" in raw_status,
-#         KawasakiStatus.TEACH_MODE: "TEACH mode" in raw_status,
-#         KawasakiStatus.BUSY: "CYCLE START ON" in raw_status,
-#         # SWITCH to check TEACH LOCK status
-#     }
-
-
 def write_program_to_robot(program: str, name: str) -> None:
-    TELNET.write(b"KILL" + ENDLINE)
-    TELNET.write(b"1" + ENDLINE)
+    TELNET.write("KILL")
+    TELNET.write("1")
     TELNET.write(ENTER)
-    TELNET.write(f"DELETE {name}".encode(ENCODING) + ENDLINE)
-    TELNET.write(b"1" + ENDLINE)
+    TELNET.write(f"DELETE {name}")
+    TELNET.write("1")
     TELNET.write(ENTER)
-    TELNET.write(f"EDIT {name}, 1".encode(ENCODING) + ENDLINE)
+    TELNET.write(f"EDIT {name}, 1")
     for line in program.splitlines():
-        TELNET.write(line.encode(ENCODING) + ENDLINE)
-    TELNET.write(b"E")
+        TELNET.write(line)
+    TELNET.write("E")
     TELNET.write(ENTER)
     time.sleep(0.1)
 
 
 def get_robot_status() -> dict[KawasakiStatus, bool]:
-    TELNET.write(b"SWITCH" + ENDLINE)
-    message: str = TELNET.read_until(b"Press SPACE key to continue").decode(ENCODING).split("SWITCH\r")[1]
+    TELNET.write("SWITCH")
+    message: str = TELNET.read_until_match("Press SPACE key to continue").split("SWITCH\r")[1]
     raw_data = [s.replace(" ", "").replace("\n", "").replace("*", "").replace("\r", "") for s in re.split(" ON| OFF", message)]
     raw_data.pop()
-    status_data = {key: value == " ON" for key, value in zip(raw_data, re.findall(" ON| OFF", message))}
+    status_data = {key: value == " ON" for key, value in zip(raw_data, re.findall(" ON| OFF", message), strict=False)}
     time.sleep(0.1)
     TELNET.write(ENTER)
     return {
@@ -225,31 +173,17 @@ status = get_robot_status()
 if not status[KawasakiStatus.MOTOR_POWERED]:
     raise KawasakiStatusError(KawasakiStatus.MOTOR_POWERED.name)
 
-prog: str = """
-SPEED 100 ALWAYS\n
-HOME\n
-DRIVE 1, 0, 100\n
-HOME\n
-"""
-write_program_to_robot(prog, "temp_program")
 
-# left_top_corner: JointState = JointState(19.175, 34.457, -137.455, 2.404, -8.782, -69.342, "left_top_corner")
-left_top_corner: JointState = JointState(9.487, 68.678, -53.954, -179.435, 57.988, -237.583, "left_top_corner")
-
-# right_top_corner: JointState = left_top_corner.shift_point(-280, 0, 0, "right_top_corner")
-# right_bot_corner: JointState = right_top_corner.shift_point(0, 280, 0, "right_bot_corner")
-# left_bot_corner: JointState = right_bot_corner.shift_point(280, 0, 0, "left_bot_corner")
+left_top_corner: CartesianState = CartesianState("left_top_corner", 91.362, 554.329, -193.894, -137.238, 179.217, -5.03)
 
 
-def calculate_chessboard_point_to_move(chessboard_uci: str, z: float = 0.0) -> JointState:
+def calculate_chessboard_point_to_move(chessboard_uci: str, z: float = 0.0) -> CartesianState:
     x: int = ord(chessboard_uci[0]) - ord("a")
     y: int = int(chessboard_uci[1]) - 1
-    return left_top_corner.shift_point(x * -40, y * -40, z, chessboard_uci)
-
-
-send_command(KawasakiCommand.EXECUTE_PROG, "temp_program")
+    return left_top_corner.shift_point(chessboard_uci, x * -40, y * -40, z)
 
 p = False
+send_command(KawasakiCommand.HOME)
 while True:
     move_to: str = input("Move to: ")
     if len(move_to) == 2 and move_to[0] in "abcdefgh" and move_to[1] in "12345678":

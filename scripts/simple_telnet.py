@@ -59,6 +59,15 @@ class SimpleTelnet:
             buffer_encoded = buffer_encoded.replace(TelnetFlag.IAC, TelnetFlag.IAC + TelnetFlag.IAC)
         self.socket.sendall(buffer_encoded)
 
+    def clear_queue(self) -> None:
+        self.raw_queue = b""
+        self.raw_queue_index = 0
+        self.cooked_queue = b""
+        self.iac_sequence = b""
+        self.subnegotiation = False
+        self.subnegotiation_data_queue = b""
+        self.end_of_file = False
+
     def read_until_match(self, match: str) -> str:
         match_encoded: bytes = match.encode("ascii")
         self.__raw_queue_process()
