@@ -249,28 +249,28 @@ def calculate_chessboard_point_to_move(chessboard_uci: str, z: float = 0.0) -> J
 
 send_command(KawasakiCommand.EXECUTE_PROG, "temp_program")
 
-# p = False
-# while True:
-#     move_to: str = input("Move to: ")
-#     if len(move_to) == 2 and move_to[0] in "abcdefgh" and move_to[1] in "12345678":
-#         if p:
-#             send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move(move_to, 80))
-#         else:
-#             send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move(move_to))
-#         time.sleep(0.1)
-#         print("Done!")
-#     elif move_to == "up" and not p:
-#         send_command(KawasakiCommand.PICKUP)
-#         p = True
-#         time.sleep(0.1)
-#         print("Done!")
-#     elif move_to == "down" and p:
-#         p = False
-#         send_command(KawasakiCommand.PUTDOWN)
-#         time.sleep(0.1)
-#         print("Done!")
-#     elif move_to == "exit":
-#         send_command(KawasakiCommand.MOTOR_OFF)
-#         break
-#     else:
-#         print("Invalid move!")
+p = False
+while True:
+    move_to: str = input("Move to: ")
+    if len(move_to) == 2 and move_to[0] in "abcdefgh" and move_to[1] in "12345678":
+        if p:
+            send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move(move_to, 80))
+        else:
+            send_command(KawasakiCommand.MOVE_TO_POINT, calculate_chessboard_point_to_move(move_to))
+        time.sleep(0.1)
+        print("Done!")
+    elif move_to == "up" and not p:
+        send_command(KawasakiCommand.PICKUP)
+        p = True
+        time.sleep(0.1)
+        print("Done!")
+    elif move_to == "down" and p:
+        p = False
+        send_command(KawasakiCommand.PUTDOWN)
+        time.sleep(0.1)
+        print("Done!")
+    elif move_to == "exit":
+        send_command(KawasakiCommand.MOTOR_OFF)
+        break
+    else:
+        print("Invalid move!")

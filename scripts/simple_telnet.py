@@ -36,8 +36,8 @@ class SimpleTelnet:
         self.cooked_queue: bytes = b""
         self.end_of_file: bool = False
         self.iac_sequence: bytes = b""
-        self.sb: bool = False
-        self.sb_data_queue: bytes = b""
+        self.subnegotiation: bool = False
+        self.subnegotiation_data_queue: bytes = b""
         self.socket: socket = create_connection((self.host, self.port))
 
     def __del__(self) -> None:
@@ -49,7 +49,7 @@ class SimpleTelnet:
     def close(self) -> None:
         self.end_of_file = True
         self.iac_sequence = b""
-        self.sb = False
+        self.subnegotiation = False
         if self.socket:
             self.socket.close()
 
@@ -81,7 +81,7 @@ class SimpleTelnet:
             char: bytes = self.__raw_queue_get_char()
             if not self.iac_sequence:
                 if char != TelnetFlag.IAC and char not in {TelnetFlag.NULL, b"\021"}:
-                    buffer[self.sb] += char
+                    buffer[self.subnegotiation] += char
                     continue
                 self.iac_sequence += char
                 continue
@@ -92,13 +92,13 @@ class SimpleTelnet:
                 self.iac_sequence = b""
                 match char:
                     case TelnetFlag.IAC:
-                        buffer[self.sb] += char
+                        buffer[self.subnegotiation] += char
                     case TelnetFlag.SB:
-                        self.sb = True
-                        self.sb_data_queue = b""
+                        self.subnegotiation = True
+                        self.subnegotiation_data_queue = b""
                     case TelnetFlag.SE:
-                        self.sb = False
-                        self.sb_data_queue += buffer[1]
+                        self.subnegotiation = False
+                        self.subnegotiation_data_queue += buffer[1]
                         buffer[1] = b""
                 self.__negotiate(char, TelnetFlag.NULL)
                 continue
@@ -107,7 +107,7 @@ class SimpleTelnet:
             if command in {TelnetFlag.DO, TelnetFlag.DONT} or command in {TelnetFlag.WILL, TelnetFlag.WONT}:
                 self.__negotiate(command, char)
         self.cooked_queue += buffer[0]
-        self.sb_data_queue += buffer[1]
+        self.subnegotiation_data_queue += buffer[1]
 
     def __raw_queue_get_char(self) -> bytes:
         if not self.raw_queue:
@@ -143,7 +143,7 @@ class SimpleTelnet:
 
 if __name__ == "__main__":
     telnet = SimpleTelnet("127.0.0.1/9105")
-    a: str = telnet.read_until_match("login: ")
+    a: str = telnet.read_until_match("login:")
     telnet.write("as")
     b: str = telnet.read_until_match(">")
     telnet.write("POINT #xd")
