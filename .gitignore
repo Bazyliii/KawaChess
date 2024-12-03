@@ -12,4 +12,6 @@ board_moves
 build
 *.pdf
 scripts/ArUco.py
-scripts/__pycache__/simple_telnet.cpython-312.pyc
+scripts/__pycache__/
+scripts/kawachess/__pycache__/
+temp
