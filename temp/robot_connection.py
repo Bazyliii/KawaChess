@@ -1,6 +1,11 @@
+import re
 import selectors
+import time
 from dataclasses import dataclass
 from socket import create_connection, socket
+
+from Kawasaki.constants import BUSY, CONTINUOUS_PATH, ERROR, HOLD, MOTOR_POWERED, REPEAT_MODE, REPEAT_ONCE, STEP_ONCE, TEACH_LOCK, TEACH_MODE
+from Kawasaki.robot_point import RobotPoint
 
 
 @dataclass(frozen=True)
@@ -26,7 +31,7 @@ class TelnetFlag:
     NULL: bytes = bytes([0])
 
 
-class SimpleTelnet:
+class RobotConnection:
     def __init__(self, host: str) -> None:
         self._telnet_selector: type = selectors.SelectSelector
         self.host: str = host.split("/")[0]
@@ -40,6 +45,48 @@ class SimpleTelnet:
         self.subnegotiation_data_queue: bytes = b""
         self.socket: socket = create_connection((self.host, self.port))
 
+    def login(self, username: str = "as") -> None:
+        self.read_until_match("login:")
+        self.write(username)
+        self.read_until_match(">")
+
+    def status(self) -> dict[int, bool]:
+        self.write("SWITCH")
+        message: str = self.read_until_match("Press SPACE key to continue").split("SWITCH\r")[1]
+        split_pattern: re.Pattern[str] = re.compile(r" ON| OFF")
+        replace_pattern: re.Pattern[str] = re.compile(r"[ \n*\r]")
+        raw_data: list[str] = [re.sub(replace_pattern, "", s) for s in re.split(pattern=split_pattern, string=message)][:-1]
+        status_data: dict[str, bool] = {key: value == " ON" for key, value in zip(raw_data, re.findall(split_pattern, string=message), strict=True)}
+        self.write("\n")
+        self.clear_queue()
+        return {
+            BUSY: status_data["CS"],
+            ERROR: status_data["ERROR"],
+            MOTOR_POWERED: status_data["POWER"],
+            REPEAT_MODE: status_data["REPEAT"],
+            TEACH_MODE: not status_data["REPEAT"],
+            TEACH_LOCK: status_data["TEACH_LOCK"],
+            HOLD: not status_data["RUN"],
+            CONTINUOUS_PATH: status_data["CP"],
+            REPEAT_ONCE: status_data["REP_ONCE"],
+            STEP_ONCE: status_data["STP_ONCE"],
+        }
+
+    def send_command(self, command: tuple[str, int], arg: RobotPoint | None = None) -> None:
+        match command[1]:
+            case 0:
+                self.write(command[0])
+                self.read_until_match(">")
+            case 1:
+                if type(arg) is RobotPoint:
+                    self.write(command[0] + f" {arg.name}")
+                else:
+                    self.write(command[0])
+                self.read_until_match("DO motion completed.")
+            case 2:
+                pass
+        time.sleep(0.5)
+
     def __del__(self) -> None:
         self.close()
 
@@ -51,6 +98,7 @@ class SimpleTelnet:
         self.iac_sequence = b""
         self.subnegotiation = False
         if self.socket:
+            self.write("signal -2011")
             self.socket.close()
 
     def write(self, buffer: str) -> None:
@@ -60,13 +108,11 @@ class SimpleTelnet:
         self.socket.sendall(buffer_encoded)
 
     def clear_queue(self) -> None:
+        self.__raw_queue_fill()
+        self.__raw_queue_process()
         self.raw_queue = b""
-        self.raw_queue_index = 0
         self.cooked_queue = b""
-        self.iac_sequence = b""
-        self.subnegotiation = False
-        self.subnegotiation_data_queue = b""
-        self.end_of_file = False
+        self.raw_queue_index = 0
 
     def read_until_match(self, match: str) -> str:
         match_encoded: bytes = match.encode("ascii")
@@ -148,17 +194,3 @@ class SimpleTelnet:
                 self.socket.sendall(
                     TelnetFlag.IAC + TelnetFlag.SB + TelnetFlag.TTYPE + TelnetFlag.NULL + b"VT100" + TelnetFlag.NULL + TelnetFlag.IAC + TelnetFlag.SE,
                 )
-
-
-if __name__ == "__main__":
-    telnet = SimpleTelnet("127.0.0.1/9105")
-    a: str = telnet.read_until_match("login:")
-    telnet.write("as")
-    b: str = telnet.read_until_match(">")
-    telnet.write("POINT #xd")
-    c: str = telnet.read_until_match("Change?")
-    telnet.write("9.487,68.678,-53.954,-179.435,57.988,-237.583")
-    d: str = telnet.read_until_match("Change?")
-    telnet.write("\n")
-    e: str = telnet.read_until_match(">")
-    print(a, b, c, d, e)

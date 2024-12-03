@@ -3,7 +3,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from enum import Enum, auto
+from enum import Enum
 from os.path import exists
 from socket import socket
 from sqlite3 import Connection, Cursor, connect
@@ -65,45 +65,39 @@ ENDLINE: Final[bytes] = b"\r\n"
 ENCODING: Final[str] = "ascii"
 
 
-@dataclass(frozen=True)
+@dataclass
 class MessageType:
-    ERROR: tuple[str, str] = ("[ERROR] ", colors.RED_400)
-    WARNING: tuple[str, str] = ("[WARNING] ", colors.ORANGE_400)
-    INFO: tuple[str, str] = ("[INFO] ", colors.GREEN_400)
-    EXCEPTION: tuple[str, str] = ("[EXCEPTION] ", colors.RED_400)
-    GAME_STATUS: tuple[str, str] = ("[GAME STATUS] ", colors.YELLOW_600)
-    MOVE: tuple[str, str] = ("[MOVE] ", colors.GREEN_400)
+    ERROR: tuple[Literal["[ERROR] "], Literal["red400"]] = ("[ERROR] ", colors.RED_400)
+    WARNING: tuple[Literal["[WARNING] "], Literal["orange400"]] = ("[WARNING] ", colors.ORANGE_400)
+    INFO: tuple[Literal["[INFO] "], Literal["green400"]] = ("[INFO] ", colors.GREEN_400)
+    EXCEPTION: tuple[Literal["[EXCEPTION] "], Literal["red400"]] = ("[EXCEPTION] ", colors.RED_400)
+    GAME_STATUS: tuple[Literal["[GAME STATUS] "], Literal["yellow600"]] = ("[GAME STATUS] ", colors.YELLOW_600)
+    MOVE: tuple[Literal["[MOVE] "], Literal["green400"]] = ("[MOVE] ", colors.GREEN_400)
 
 
-@dataclass(frozen=True)
+@dataclass
 class RobotCommand:
-    RESET: tuple[str, int] = ("ERESET", 0)
-    MOTOR_ON: tuple[str, int] = ("ZPOW ON", 0)
-    MOTOR_OFF: tuple[str, int] = ("ZPOW OFF", 0)
-    HOME: tuple[str, int] = ("DO HOME", 1)
-    MOVE_TO_POINT: tuple[str, int] = ("DO LMOVE", 1)
-    PICKUP: tuple[str, int] = ("DO LDEPART 80", 1)
-    PUTDOWN: tuple[str, int] = ("DO LDEPART -80", 1)
-    EXECUTE_PROG: tuple[str, int] = ("EXE", 2)
-    CONTINUOUS_PATH_ON: tuple[str, int] = ("CP ON", 0)
-    CONTINUOUS_PATH_OFF: tuple[str, int] = ("CP OFF", 0)
-    REPEAT_ONCE_OFF: tuple[str, int] = ("REP_ONCE OFF", 0)
-    REPEAT_ONCE_ON: tuple[str, int] = ("REP_ONCE ON", 0)
-    STEP_ONCE_OFF: tuple[str, int] = ("STP_ONCE OFF", 0)
-    STEP_ONCE_ON: tuple[str, int] = ("STP_ONCE ON", 0)
+    RESET: Final[tuple[str, int]] = ("ERESET", 0)
+    MOTOR_ON: Final[tuple[str, int]] = ("ZPOW ON", 0)
+    MOTOR_OFF: Final[tuple[str, int]] = ("ZPOW OFF", 0)
+    HOME: Final[tuple[str, int]] = ("DO HOME", 1)
+    MOVE_TO_POINT: Final[tuple[str, int]] = ("DO LMOVE", 1)
+    PICKUP: Final[tuple[str, int]] = ("DO LDEPART 80", 1)
+    PUTDOWN: Final[tuple[str, int]] = ("DO LDEPART -80", 1)
+    EXECUTE_PROG: Final[tuple[str, int]] = ("EXE", 2)
+    CONTINUOUS_PATH_ON: Final[tuple[str, int]] = ("CP ON", 0)
+    CONTINUOUS_PATH_OFF: Final[tuple[str, int]] = ("CP OFF", 0)
 
 
 class RobotStatus(Enum):
-    ERROR = auto()
-    MOTOR_POWERED = auto()
-    REPEAT_MODE = auto()
-    TEACH_MODE = auto()
-    TEACH_LOCK = auto()
-    BUSY = auto()
-    HOLD = auto()
-    CONTINUOUS_PATH = auto()
-    REPEAT_ONCE = auto()
-    STEP_ONCE = auto()
+    ERROR = 0
+    MOTOR_POWERED = 1
+    REPEAT_MODE = 2
+    TEACH_MODE = 3
+    TEACH_LOCK = 4
+    BUSY = 5
+    HOLD = 6
+    CONTINUOUS_PATH = 7
 
 
 class RobotConnection:
@@ -182,83 +176,59 @@ class JointState:
         return JointState(self.__connection, jt[0], jt[1], jt[2], jt[3], jt[4], jt[5], name)
 
 
-class Logger:
-    def __init__(self, width: int) -> None:
-        self.__log_container = ListView(
-            width=width,
-            clip_behavior=ClipBehavior.NONE,
-            auto_scroll=True,
-            spacing=1,
-            divider_thickness=1,
-        )
-
-    def __call__(self, msg_type: tuple[str, str], text: str | Exception) -> None:
-        self.__log_container.controls.append(
-            Text(
-                spans=[
-                    TextSpan(datetime.now(TIMEZONE).strftime("%H:%M:%S "), TextStyle(color=colors.WHITE38)),
-                    TextSpan(msg_type[0], TextStyle(weight=FontWeight.BOLD)),
-                    TextSpan(str(text)),
-                ],
-                color=msg_type[1],
-            ),
-        )
-        self.__log_container.update()
-
-    def clear(self) -> None:
-        self.__log_container.controls.clear()
-        self(MessageType.WARNING, "Log cleared!")
-
-    @property
-    def log_container(self) -> ListView:
-        return self.__log_container
-
-
 class RobotControl:
-    def __init__(self, connection: RobotConnection, logger: Logger) -> None:
-        self.__telnet: Final[Telnet] = connection.telnet
-        self.__logger: Final[Logger] = logger
-        match self.get_robot_status():
-            case {RobotStatus.ERROR: True}:
-                self.send_command(RobotCommand.RESET)
-            case {RobotStatus.CONTINUOUS_PATH: True}:
-                self.send_command(RobotCommand.CONTINUOUS_PATH_OFF)
-            case {RobotStatus.REPEAT_MODE: True}:
-                self.send_command(RobotCommand.REPEAT_ONCE_ON)
-            case {RobotStatus.STEP_ONCE: True}:
-                self.send_command(RobotCommand.STEP_ONCE_OFF)
-            case {RobotStatus.MOTOR_POWERED: False}:
-                self.send_command(RobotCommand.MOTOR_ON)
-            case {RobotStatus.TEACH_MODE: True}:
-                self.__logger(MessageType.ERROR, "Robot is in teach mode!")
-            case {RobotStatus.TEACH_LOCK: True}:
-                self.__logger(MessageType.ERROR, "Teach lock is ON!")
-            case {RobotStatus.HOLD: True}:
-                self.__logger(MessageType.ERROR, "Robot is in hold mode!")
-        if self.get_robot_status()[RobotStatus.MOTOR_POWERED]:
-            self.__logger(MessageType.INFO, "Robot initialized!")
-        else:
-            self.__logger(MessageType.ERROR, "Robot initialization failed!")
+    __SPEED: ClassVar[int] = 100
 
-        # self.write_program("""SPEED 100 ALWAYS\n""", "chess_program")
-        # self.send_command(RobotCommand.EXECUTE_PROG, "chess_program")
+    def __init__(self, connection: RobotConnection) -> None:
+        self.__telnet: Final[Telnet] = connection.telnet
+        self.initial_status: dict[RobotStatus, bool] = self.get_robot_status()
+        if self.initial_status[RobotStatus.ERROR]:
+            self.send_command(RobotCommand.RESET)
+        if self.initial_status[RobotStatus.CONTINUOUS_PATH]:
+            self.send_command(RobotCommand.CONTINUOUS_PATH_OFF)
+        if not self.initial_status[RobotStatus.MOTOR_POWERED]:
+            self.send_command(RobotCommand.MOTOR_ON)
+        self.write_program("""SPEED 100 ALWAYS\n""", "chess_program")
+        self.send_command(RobotCommand.EXECUTE_PROG, "chess_program")
         self.__home: Final[JointState] = JointState(connection, 9.487, 68.678, -53.954, -179.435, 57.988, -237.583, "chess_app_temp_point")
 
     def calculate_chessboard_point_to_move(self, chessboard_uci: str, z: float = 0.0) -> JointState:
-        return self.__home.shift_point(ord(chessboard_uci[0]) - ord("a") * -40, int(chessboard_uci[1]) - 1 * -40, z, chessboard_uci)
+        x: int = ord(chessboard_uci[0]) - ord("a")
+        y: int = int(chessboard_uci[1]) - 1
+        return self.__home.shift_point(x * -40, y * -40, z, chessboard_uci)
 
-    def get_robot_status(self) -> dict[RobotStatus, bool | None]:
+    def get_robot_status(self) -> dict[RobotStatus, bool]:
         self.__telnet.write(b"SWITCH" + ENDLINE)
         raw_msg: str = self.__telnet.read_until(b"Press SPACE key to continue").decode(ENCODING).split("SWITCH\r")[1]
-        raw_data: list[str | Any] = [
-            s.replace(" ", "").replace("\n", "").replace("*", "").replace("\r", "") for s in re.split(pattern=" ON| OFF", string=raw_msg)
-        ]
+        raw_data: list[str | Any] = [s.replace(" ", "").replace("\n", "").replace("*", "").replace("\r", "") for s in re.split(" ON| OFF", raw_msg)]
         raw_data.pop()
-        status_data: dict[str, bool] = {key: value == " ON" for key, value in zip(raw_data, re.findall(pattern=" ON| OFF", string=raw_msg), strict=False)}
+        status_data: dict[str, bool] = {key: value == " ON" for key, value in zip(raw_data, re.findall(" ON| OFF", raw_msg), strict=False)}
         time.sleep(0.1)  # FIXME
         self.__telnet.write(ENTER)
 
-        return {k: status_data.get(k.name, None) for k in RobotStatus}
+        status: dict[RobotStatus, bool] = {
+            RobotStatus.BUSY: False,
+            RobotStatus.ERROR: False,
+            RobotStatus.MOTOR_POWERED: False,
+            RobotStatus.REPEAT_MODE: False,
+            RobotStatus.TEACH_MODE: False,
+            RobotStatus.TEACH_LOCK: False,
+            RobotStatus.HOLD: False,
+            RobotStatus.CONTINUOUS_PATH: False,
+        }
+        try:
+            status[RobotStatus.BUSY] = status_data["CS"]
+            status[RobotStatus.ERROR] = status_data["ERROR"]
+            status[RobotStatus.MOTOR_POWERED] = status_data["POWER"]
+            status[RobotStatus.REPEAT_MODE] = status_data["REPEAT"]
+            status[RobotStatus.TEACH_MODE] = not status_data["REPEAT"]
+            status[RobotStatus.TEACH_LOCK] = status_data["TEACH_LOCK"]
+            status[RobotStatus.HOLD] = not status_data["RUN"]
+            status[RobotStatus.CONTINUOUS_PATH] = status_data["CP"]
+        except KeyError:
+            pass
+        return status
+
 
     def write_program(self, program: str, name: str) -> None:
         self.__telnet.write(b"KILL" + ENDLINE)
@@ -291,6 +261,38 @@ class RobotControl:
                 self.__telnet.write(command_encoded + f" {arg}".encode(ENCODING) + ENDLINE)
                 _ = self.__telnet.read_until(b"Program completed.")
         time.sleep(0.5)  # FIXME
+
+
+class Logger:
+    def __init__(self, width: int) -> None:
+        self.__log_container = ListView(
+            width=width,
+            clip_behavior=ClipBehavior.NONE,
+            auto_scroll=True,
+            spacing=1,
+            divider_thickness=1,
+        )
+
+    def __call__(self, msg_type: tuple[str, str], text: str | Exception) -> None:
+        self.__log_container.controls.append(
+            Text(
+                spans=[
+                    TextSpan(datetime.now(TIMEZONE).strftime("%H:%M:%S "), TextStyle(color=colors.WHITE38)),
+                    TextSpan(msg_type[0], TextStyle(weight=FontWeight.BOLD)),
+                    TextSpan(str(text)),
+                ],
+                color=msg_type[1],
+            ),
+        )
+        self.__log_container.update()
+
+    def clear(self) -> None:
+        self.__log_container.controls.clear()
+        self(MessageType.WARNING, "Log cleared!")
+
+    @property
+    def log_container(self) -> ListView:
+        return self.__log_container
 
 
 class ChessDatabase:
@@ -469,8 +471,8 @@ class GameLogic:
     def __init__(self, board_width: int, board_height: int, logger: Logger, database: ChessDatabase, page: Page) -> None:
         self.logger: Logger = logger
         self.database: ChessDatabase = database
-        self.connection: RobotConnection = RobotConnection("127.0.0.1", 9105)
-        self.robot: RobotControl = RobotControl(self.connection, self.logger)
+        self.connection: RobotConnection = RobotConnection("192.168.1.155", 23)
+        self.robot: RobotControl = RobotControl(self.connection)
         self.__page: Page = page
         self.__game_status: bool = False
         self.__stockfish_skill_level: int = 20
@@ -541,14 +543,31 @@ class GameLogic:
             if self.__game_status:
                 self.__board.push(engine_move)
                 self.logger(MessageType.MOVE, f"Engine: {engine_move.uci()}")
-                robot_move_from: JointState = self.robot.calculate_chessboard_point_to_move(engine_move.uci()[:2], 80)
-                robot_move_to: JointState = self.robot.calculate_chessboard_point_to_move(engine_move.uci()[2:], 80)
-                program: str = (
-                    f"""SPEED 50 ALWAYS\nHMOVE #{robot_move_from.name}\nLDEPART -80\nLDEPART 80\nHMOVE #{robot_move_to.name}\nLDEPART -80\nLDEPART 80\n"""
-                )
+                robot_move_from = self.robot.calculate_chessboard_point_to_move(engine_move.uci()[:2], 80)
+                robot_move_to = self.robot.calculate_chessboard_point_to_move(engine_move.uci()[2:], 80)
+                program: str = f"""SPEED 50 ALWAYS\nLMOVE #{robot_move_from.name}\nLDEPART -80\nLDEPART 80\nLMOVE #{robot_move_to.name}\nLDEPART -80\nLDEPART 80\n"""
+                print(program)
                 self.robot.write_program(program, "chess_move2")
                 time.sleep(1)
                 self.robot.send_command(RobotCommand.EXECUTE_PROG, "chess_move2")
+                # self.robot.send_command(RobotCommand.MOVE_TO_POINT, robot_move_from)
+                # while self.robot.get_robot_status()[RobotStatus.BUSY]:
+                #     time.sleep(1)
+                # self.robot.send_command(RobotCommand.PUTDOWN)
+                # while self.robot.get_robot_status()[RobotStatus.BUSY]:
+                #     time.sleep(1)
+                # self.robot.send_command(RobotCommand.PICKUP)
+                # while self.robot.get_robot_status()[RobotStatus.BUSY]:
+                #     time.sleep(1)
+                # self.robot.send_command(RobotCommand.MOVE_TO_POINT, robot_move_to)
+                # while self.robot.get_robot_status()[RobotStatus.BUSY]:
+                #     time.sleep(1)
+                # self.robot.send_command(RobotCommand.PUTDOWN)
+                # while self.robot.get_robot_status()[RobotStatus.BUSY]:
+                #     time.sleep(1)
+                # self.robot.send_command(RobotCommand.PICKUP)
+                # while self.robot.get_robot_status()[RobotStatus.BUSY]:
+                #     time.sleep(1)
                 self.__chess_board_svg.src = svg.board(self.__board)
                 self.__page.update()
         self.stop_game()

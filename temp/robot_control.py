@@ -24,13 +24,14 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Final
 
-from simple_telnet import SimpleTelnet
+from Kawasaki import TelnetConnection
 
-TELNET: Final[SimpleTelnet] = SimpleTelnet("192.168.1.155/23")
+# TELNET: Final[SimpleTelnet] = SimpleTelnet("192.168.1.155/23")
+TELNET: Final[TelnetConnection] = TelnetConnection("127.0.0.1/9105")
 
 USER: Final[str] = "as"
 SPEED: Final[int] = 100
-ENTER: Final[bytes] = "\n"
+ENTER: Final[str] = "\n"
 
 
 @dataclass
@@ -39,7 +40,7 @@ class KawasakiCommand:
     MOTOR_ON: tuple[str, int] = ("ZPOW ON", 0)
     MOTOR_OFF: tuple[str, int] = ("ZPOW OFF", 0)
     HOME: tuple[str, int] = ("DO HOME", 1)
-    MOVE_TO_POINT: tuple[str, int] = ("DO LMOVE", 1)
+    MOVE_TO_POINT: tuple[str, int] = ("DO HMOVE", 1)
     PICKUP: tuple[str, int] = ("DO LDEPART 80", 1)
     PUTDOWN: tuple[str, int] = ("DO LDEPART -80", 1)
     EXECUTE_PROG: tuple[str, int] = ("EXE", 2)
@@ -79,7 +80,7 @@ class CartesianState:
         self.t: float = t
         self.__create_point()
 
-    def __create_point(self) -> "CartesianState":
+    def __create_point(self) -> None:
         TELNET.write(f"POINT {self.name}")
         TELNET.write(f"{self.x},{self.y},{self.z},{self.o},{self.a},{self.t}")
         TELNET.write(ENTER)
