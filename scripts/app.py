@@ -1,21 +1,32 @@
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum, auto
+
 import flet
 from flet import (
     AppBar,
+    BorderSide,
     ButtonStyle,
     ClipBehavior,
     Column,
     Container,
     ControlEvent,
     CrossAxisAlignment,
+    DataCell,
+    DataColumn,
+    DataRow,
+    DataTable,
+    Divider,
+    ElevatedButton,
     FontWeight,
     Icon,
     IconButton,
     Image,
     ListView,
     MainAxisAlignment,
+    Markdown,
+    NavigationRail,
+    NavigationRailDestination,
+    NavigationRailLabelType,
     Page,
     RoundedRectangleBorder,
     Row,
@@ -31,229 +42,209 @@ from flet import (
     TextOverflow,
     TextSpan,
     TextStyle,
+    VerticalDivider,
     WindowDragArea,
     alignment,
     app,
     border,
     border_radius,
-    colors,
     icons,
     padding,
-    NavigationRail,
-    NavigationRailDestination,
-    NavigationRailLabelType,
-    VerticalDivider,
-    Markdown
 )
+from kawachess import ChessDatabase, GameContainer, colors, flet_components
 
 
-class CloseButton(IconButton):
-    def __init__(self, on_click: Callable | None = None) -> None:
-        super().__init__(
-            icons.CLOSE,
-            icon_size=13,
-            on_click=on_click,
-            icon_color=colors.GREY_400,
-            hover_color=colors.RED_400,
-            style=ButtonStyle(shape=RoundedRectangleBorder(radius=1)),
-        )
+class DatabaseContainer(Column):
+    def __init__(self) -> None:
+        super().__init__()
+        self.expand = True
+        self.visible = False
 
-
-class MinimizeButton(IconButton):
-    def __init__(self, on_click: Callable | None = None) -> None:
-        super().__init__(
-            icons.MINIMIZE,
-            icon_size=13,
-            on_click=on_click,
-            icon_color=colors.GREY_400,
-            hover_color=colors.GREEN_400,
-            style=ButtonStyle(shape=RoundedRectangleBorder(radius=1)),
-        )
-
-
-class MaximizeButton(IconButton):
-    def __init__(self, on_click: Callable | None = None) -> None:
-        super().__init__(
-            icons.CHECK_BOX_OUTLINE_BLANK,
-            icon_size=13,
-            on_click=on_click,
-            icon_color=colors.GREY_400,
-            selected=False,
-            selected_icon=icons.COPY_OUTLINED,
-            hover_color=colors.BLUE_400,
-            style=ButtonStyle(shape=RoundedRectangleBorder(radius=1)),
-        )
-
-
-class GameContainer(Container):
-    def __init__(self, page: Page) -> None:
-        super().__init__(
-            expand=True,
-            bgcolor=CustomColors.ACCENT_COLOR_2,
-            visible=True,
-            content=Column(
-                [
-                    Text("GAME", size=40, weight=FontWeight.BOLD, text_align=TextAlign.CENTER),
+    def update_game_data(self) -> None:
+        self.database = ChessDatabase("chess.db")
+        self.controls = (
+            DataTable(
+                columns=[
+                    DataColumn(Text("ID"), heading_row_alignment=MainAxisAlignment.CENTER),
+                    DataColumn(Text("White Player"), heading_row_alignment=MainAxisAlignment.CENTER),
+                    DataColumn(Text("Black Player"), heading_row_alignment=MainAxisAlignment.CENTER),
+                    DataColumn(Text("Date"), heading_row_alignment=MainAxisAlignment.CENTER),
+                    DataColumn(Text("Duration"), heading_row_alignment=MainAxisAlignment.CENTER),
+                    DataColumn(Text("Result"), heading_row_alignment=MainAxisAlignment.CENTER),
                 ],
-                expand=True,
-                alignment=MainAxisAlignment.CENTER,
-                horizontal_alignment=CrossAxisAlignment.CENTER,
+                rows=[
+                    DataRow(
+                        cells=[
+                            DataCell(Text(str(row[0]))),
+                            DataCell(Text(row[1])),
+                            DataCell(Text(row[2])),
+                            DataCell(Text(row[3])),
+                            DataCell(Text(row[4])),
+                            DataCell(Text(row[10])),
+                        ],
+                    )
+                    for row in self.database.get_game_data()
+                ],
+                width=10000,
+                data_row_max_height=50,
+                vertical_lines=BorderSide(2, colors.ACCENT_COLOR_1),
+                horizontal_lines=BorderSide(2, colors.ACCENT_COLOR_1),
+                heading_row_color=colors.ACCENT_COLOR_1,
+                heading_text_style=TextStyle(
+                    weight=FontWeight.BOLD,
+                    color=colors.ACCENT_COLOR_3,
+                ),
             ),
         )
-        self.__page = page
-        self.__page.update()
+        self.database.close()
+        self.update()
 
 
-class DatabaseContainer(Container):
-    def __init__(self, page: Page) -> None:
-        super().__init__(
-            expand=True,
-            bgcolor=CustomColors.ACCENT_COLOR_2,
-            visible=False,
-            content=Column(
-                [
-                    Text("DATABASE", size=40, weight=FontWeight.BOLD, text_align=TextAlign.CENTER),
-                ],
-                expand=True,
-                alignment=MainAxisAlignment.CENTER,
-                horizontal_alignment=CrossAxisAlignment.CENTER,
+class LogsContainer(Column):
+    def __init__(self) -> None:
+        super().__init__()
+        self.expand = True
+        self.bgcolor = colors.ACCENT_COLOR_2
+        self.alignment = MainAxisAlignment.CENTER
+        self.horizontal_alignment = CrossAxisAlignment.CENTER
+        self.visible = False
+        self.controls = [
+            Text("LOGS", size=40, weight=FontWeight.BOLD, text_align=TextAlign.CENTER),
+        ]
+
+
+class AboutContainer(Column):
+    def __init__(self) -> None:
+        super().__init__()
+        self.expand = True
+        self.visible = False
+        self.alignment = MainAxisAlignment.CENTER
+        self.horizontal_alignment = CrossAxisAlignment.CENTER
+        self.controls = [
+            Image(
+                src="logo.png",
+                width=200,
+                height=200,
             ),
-        )
-        self.__page = page
-        self.__page.update()
-
-
-class LogsContainer(Container):
-    def __init__(self, page: Page) -> None:
-        super().__init__(
-            expand=True,
-            bgcolor=CustomColors.ACCENT_COLOR_2,
-            visible=False,
-            content=Column(
-                [
-                    Text("LOGS", size=40, weight=FontWeight.BOLD, text_align=TextAlign.CENTER),
-                ],
-                expand=True,
-                alignment=MainAxisAlignment.CENTER,
-                horizontal_alignment=CrossAxisAlignment.CENTER,
+            Text(
+                "KawaChess\nEngineering Project",
+                size=40,
+                weight=FontWeight.BOLD,
+                text_align=TextAlign.CENTER,
             ),
-        )
-        self.__page = page
-        self.__page.update()
-
-
-class AboutContainer(Container):
-    def __init__(self, page: Page) -> None:
-        super().__init__(
-            expand=True,
-            bgcolor=CustomColors.ACCENT_COLOR_2,
-            visible=False,
-            content=Column(
-                [
-                    Image(
-                        src="logo.png",
-                        width=200,
-                        height=200,
-                    ),
-                    Text(
-                        "KawaChess\nEngineering Project",
-                        size=40,
-                        weight=FontWeight.BOLD,
-                        text_align=TextAlign.CENTER,
-                    ),
-                    Text(
-                        "A chess app for Kawasaki FS03N robot",
-                        size=12,
-                        text_align=TextAlign.CENTER,
-                    ),
-                    Text(
-                        "Made with ❤️ by Jarosław Wierzbowski",
-                        size=12,
-                        text_align=TextAlign.CENTER,
-                    ),
-                    Markdown(
-                        "[GitHub Repository](https://github.com/Bazyliii/KawaChess)",
-                        auto_follow_links=True,
-                    ),
-                ],
-                expand=True,
-                alignment=MainAxisAlignment.CENTER,
-                horizontal_alignment=CrossAxisAlignment.CENTER,
+            Text(
+                "A chess app for Kawasaki FS03N robot",
+                size=12,
+                text_align=TextAlign.CENTER,
             ),
-        )
-        self.__page = page
-        self.__page.update()
-
-
-class SettingsContainer(Container):
-    def __init__(self, page: Page) -> None:
-        super().__init__(
-            expand=True,
-            bgcolor=CustomColors.ACCENT_COLOR_2,
-            visible=False,
-            content=Column(
-                [
-                    Text("Settings", size=40, weight=FontWeight.BOLD, text_align=TextAlign.CENTER),
-                ],
-                expand=True,
-                alignment=MainAxisAlignment.CENTER,
-                horizontal_alignment=CrossAxisAlignment.CENTER,
+            Text(
+                "Made with ❤️ by Jarosław Wierzbowski",
+                size=12,
+                text_align=TextAlign.CENTER,
             ),
-        )
-        self.__page = page
-        self.__page.update()
+            Markdown(
+                "[GitHub Repository](https://github.com/Bazyliii/KawaChess)",
+                auto_follow_links=True,
+            ),
+        ]
 
 
-@dataclass(frozen=True)
-class CustomColors:
-    MAIN_COLOR: str = "#23272E"
-    ACCENT_COLOR_1: str = "#1E2227"
-    ACCENT_COLOR_2: str = "#0F1113"
-    ACCENT_COLOR_3: str = "#4D78CC"
-
-
-class Containers(Enum):
-    GAME = auto()
-    DATABASE = auto()
-    LOGS = auto()
-    SETTINGS = auto()
-    ABOUT = auto()
+class SettingsContainer(Column):
+    def __init__(self) -> None:
+        super().__init__()
+        self.expand = True
+        self.visible = False
+        self.alignment = MainAxisAlignment.CENTER
+        self.horizontal_alignment = CrossAxisAlignment.CENTER
+        self.controls = [
+            TextField(
+                width=400,
+                text_align=TextAlign.CENTER,
+                bgcolor=colors.ACCENT_COLOR_1,
+                focused_border_color=colors.ACCENT_COLOR_3,
+                border_color=colors.ACCENT_COLOR_1,
+                hint_text="Player nickname",
+                focused_border_width=3,
+                hint_style=TextStyle(weight=FontWeight.BOLD),
+            ),
+            Text("Player piece color:", size=25),
+            flet.RadioGroup(
+                content=Row(
+                    [
+                        flet.Radio(
+                            value="white",
+                            label="White",
+                            active_color=colors.ACCENT_COLOR_3,
+                        ),
+                        flet.Radio(
+                            value="black",
+                            label="Black",
+                            active_color=colors.ACCENT_COLOR_3,
+                        ),
+                        flet.Radio(
+                            value="random",
+                            label="Random",
+                            active_color=colors.ACCENT_COLOR_3,
+                        ),
+                    ],
+                    alignment=flet.MainAxisAlignment.CENTER,
+                ),
+                value="random",
+            ),
+            Text("Stockfish skill level:", size=25),
+            Slider(
+                min=1,
+                max=20,
+                divisions=19,
+                width=400,
+                label="{value}",
+                value=20,
+                thumb_color=colors.ACCENT_COLOR_3,
+                active_color=colors.ACCENT_COLOR_3,
+            ),
+            flet_components.Button(
+                text="Reconnect robot",
+                icon=icons.REPLAY_OUTLINED,
+            ),
+        ]
 
 
 class KawaChessApp:
     def __init__(self, page: Page) -> None:
         self.__page: Page = page
-        self.__page.bgcolor = CustomColors.MAIN_COLOR
+        self.__page.bgcolor = colors.MAIN_COLOR
         self.__page.title = "KawaChess"
         self.__page.window.alignment = alignment.center
         self.__page.window.width = 16 * 80
         self.__page.window.height = 9 * 80
         self.__page.window.title_bar_hidden = True
+        self.__page.window.always_on_top = True
         self.__page.padding = 0
         self.__page.window.on_event = self.__window_event
-        self.__maximize_button: IconButton = MaximizeButton(on_click=lambda _: self.__maximize())
-        self.__minimize_button: IconButton = MinimizeButton(on_click=lambda _: self.__minimize())
-        self.__close_button: IconButton = CloseButton(on_click=lambda _: self.__close())
-        self.__containers: list[Container] = [
-            GameContainer(self.__page),
-            DatabaseContainer(self.__page),
-            LogsContainer(self.__page),
-            SettingsContainer(self.__page),
-            AboutContainer(self.__page),
+        self.__maximize_button: IconButton = flet_components.MaximizeButton(on_click=lambda _: self.__maximize())
+        self.__minimize_button: IconButton = flet_components.MinimizeButton(on_click=lambda _: self.__minimize())
+        self.__close_button: IconButton = flet_components.CloseButton(on_click=lambda _: self.__close())
+        self.__containers: list = [
+            GameContainer(390, 20),
+            DatabaseContainer(),
+            LogsContainer(),
+            SettingsContainer(),
+            AboutContainer(),
         ]
         self.__title_bar = AppBar(
             toolbar_height=32,
             title=WindowDragArea(
                 Row(
                     [
+                        Image(src="logo.png", width=16, height=16),
                         Text(self.__page.title, color=colors.WHITE, overflow=TextOverflow.ELLIPSIS, expand=True, size=16),
                     ],
                 ),
                 expand=True,
                 maximizable=True,
             ),
-            bgcolor=CustomColors.ACCENT_COLOR_1,
-            title_spacing=20,
+            bgcolor=colors.ACCENT_COLOR_1,
+            title_spacing=10,
             actions=[
                 self.__minimize_button,
                 self.__maximize_button,
@@ -273,8 +264,8 @@ class KawaChessApp:
             group_alignment=-1,
             label_type=NavigationRailLabelType.ALL,
             selected_index=0,
-            bgcolor=CustomColors.ACCENT_COLOR_1,
-            indicator_color=CustomColors.ACCENT_COLOR_3,
+            bgcolor=colors.ACCENT_COLOR_1,
+            indicator_color=colors.ACCENT_COLOR_3,
             on_change=self.__change_container,
         )
         self.__page.add(
@@ -289,17 +280,22 @@ class KawaChessApp:
                     self.__containers[4],
                 ],
                 expand=True,
+                spacing=0,
             ),
         )
         self.__page.update()
 
     def __change_container(self, e: ControlEvent) -> None:
+        match e.control.selected_index:
+            case 1:
+                self.__containers[1].update_game_data()
         for container in self.__containers:
             container.visible = False
         self.__containers[e.control.selected_index].visible = True
         self.__page.update()
 
     def __close(self) -> None:
+        self.__containers[0].close()
         self.__page.window.close()
 
     def __maximize(self) -> None:
