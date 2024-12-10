@@ -1,8 +1,6 @@
-from collections.abc import Callable
-from dataclasses import dataclass
-
 import flet
 from flet import (
+    AlertDialog,
     AppBar,
     BorderSide,
     ButtonStyle,
@@ -51,7 +49,7 @@ from flet import (
     icons,
     padding,
 )
-from kawachess import ChessDatabase, GameContainer, colors, flet_components
+from kawachess import ChessDatabase, GameContainer, RobotCommand, RobotConnection, RobotStatus, colors, flet_components
 
 
 class DatabaseContainer(Column):
@@ -59,9 +57,10 @@ class DatabaseContainer(Column):
         super().__init__()
         self.expand = True
         self.visible = False
+        self.scroll = ScrollMode.ADAPTIVE
 
     def update_game_data(self) -> None:
-        self.database = ChessDatabase("chess.db")
+        database = ChessDatabase("chess.db")
         self.controls = (
             DataTable(
                 columns=[
@@ -83,9 +82,10 @@ class DatabaseContainer(Column):
                             DataCell(Text(row[10])),
                         ],
                     )
-                    for row in self.database.get_game_data()
+                    for row in database.get_game_data()
                 ],
                 width=10000,
+                sort_column_index=0,
                 data_row_max_height=50,
                 vertical_lines=BorderSide(2, colors.ACCENT_COLOR_1),
                 horizontal_lines=BorderSide(2, colors.ACCENT_COLOR_1),
@@ -96,7 +96,7 @@ class DatabaseContainer(Column):
                 ),
             ),
         )
-        self.database.close()
+        database.close()
         self.update()
 
 
@@ -104,7 +104,7 @@ class LogsContainer(Column):
     def __init__(self) -> None:
         super().__init__()
         self.expand = True
-        self.bgcolor = colors.ACCENT_COLOR_2
+        self.bgcolor: str = colors.ACCENT_COLOR_2
         self.alignment = MainAxisAlignment.CENTER
         self.horizontal_alignment = CrossAxisAlignment.CENTER
         self.visible = False
@@ -150,8 +150,9 @@ class AboutContainer(Column):
 
 
 class SettingsContainer(Column):
-    def __init__(self) -> None:
+    def __init__(self, robot: RobotConnection) -> None:
         super().__init__()
+        self.robot: RobotConnection = robot
         self.expand = True
         self.visible = False
         self.alignment = MainAxisAlignment.CENTER
@@ -202,9 +203,20 @@ class SettingsContainer(Column):
                 thumb_color=colors.ACCENT_COLOR_3,
                 active_color=colors.ACCENT_COLOR_3,
             ),
-            flet_components.Button(
-                text="Reconnect robot",
-                icon=icons.REPLAY_OUTLINED,
+            Row(
+                [
+                    flet_components.Button(
+                        text="Reconnect robot",
+                        icon=icons.REPLAY_OUTLINED,
+                        on_click=lambda _: self.robot.login(),
+                    ),
+                    flet_components.Button(
+                        text="Disconnect robot",
+                        icon=icons.REPLAY_OUTLINED,
+                        on_click=lambda _: self.robot.close(),
+                    ),
+                ],
+                alignment=flet.MainAxisAlignment.CENTER,
             ),
         ]
 
@@ -212,6 +224,7 @@ class SettingsContainer(Column):
 class KawaChessApp:
     def __init__(self, page: Page) -> None:
         self.__page: Page = page
+        self.__robot: RobotConnection = RobotConnection("127.0.0.1/9105", self.__show_dialog)
         self.__page.bgcolor = colors.MAIN_COLOR
         self.__page.title = "KawaChess"
         self.__page.window.alignment = alignment.center
@@ -225,10 +238,10 @@ class KawaChessApp:
         self.__minimize_button: IconButton = flet_components.MinimizeButton(on_click=lambda _: self.__minimize())
         self.__close_button: IconButton = flet_components.CloseButton(on_click=lambda _: self.__close())
         self.__containers: list = [
-            GameContainer(390, 20),
+            GameContainer(420, self.__show_dialog, self.__robot, 20),
             DatabaseContainer(),
             LogsContainer(),
-            SettingsContainer(),
+            SettingsContainer(self.__robot),
             AboutContainer(),
         ]
         self.__title_bar = AppBar(
@@ -244,6 +257,8 @@ class KawaChessApp:
                 maximizable=True,
             ),
             bgcolor=colors.ACCENT_COLOR_1,
+            elevation_on_scroll=0,
+            elevation=0,
             title_spacing=10,
             actions=[
                 self.__minimize_button,
@@ -260,7 +275,7 @@ class KawaChessApp:
                 NavigationRailDestination(icon=icons.INFO_OUTLINED, label="About"),
             ],
             width=72,
-            indicator_shape=RoundedRectangleBorder(radius=7),
+            indicator_shape=RoundedRectangleBorder(radius=5),
             group_alignment=-1,
             label_type=NavigationRailLabelType.ALL,
             selected_index=0,
@@ -310,6 +325,16 @@ class KawaChessApp:
         if e.data in {"unmaximize", "maximize"}:
             self.__maximize_button.selected = self.__page.window.maximized
             self.__page.update()
+
+    def __show_dialog(self, msg: str) -> None:
+        dialog = AlertDialog(
+            shape=RoundedRectangleBorder(radius=5),
+            content=Text(msg, text_align=TextAlign.CENTER, size=27),
+            bgcolor=colors.ACCENT_COLOR_1,
+        )
+        self.__page.overlay.append(dialog)
+        dialog.open = True
+        self.__page.update()
 
 
 if __name__ == "__main__":

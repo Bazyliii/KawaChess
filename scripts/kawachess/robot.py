@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
 from re import Pattern, compile, findall, split, sub
@@ -7,6 +8,19 @@ from time import sleep
 
 
 class RobotStatus(Enum):
+    """
+    ### ERROR: The robot is in an error state.
+    ### MOTOR_POWERED: The robot is powered on.
+    ### REPEAT_MODE: The robot is in repeat mode.
+    ### TEACH_MODE: The robot is in teach mode.
+    ### TEACH_LOCK: The robot is locked in teach mode.
+    ### BUSY: The robot is busy.
+    ### HOLD: The robot is on hold.
+    ### CONTINUOUS_PATH: The robot is in continuous path mode.
+    ### REPEAT_ONCE: The robot is in repeat once mode.
+    ### STEP_ONCE: The robot is in single step mode.
+    """
+
     ERROR = auto()
     MOTOR_POWERED = auto()
     REPEAT_MODE = auto()
@@ -21,6 +35,23 @@ class RobotStatus(Enum):
 
 @dataclass(frozen=True)
 class RobotCommand:
+    """
+    ### RESET: Reset the robot.
+    ### MOTOR_ON: Turn on the motor.
+    ### MOTOR_OFF: Turn off the motor.
+    ### HOME: Move the robot to the home position.
+    ### MOVE_TO_POINT: Move the robot to a point.
+    ### PICKUP: Move the robot to the pickup position.
+    ### PUTDOWN: Move the robot to the putdown position.
+    ### EXECUTE_PROG: Execute a program.
+    ### CONTINUOUS_PATH_ON: Turn on continuous path mode.
+    ### CONTINUOUS_PATH_OFF: Turn off continuous path mode.
+    ### REPEAT_ONCE_OFF: Turn off repeat once mode.
+    ### REPEAT_ONCE_ON: Turn on repeat once mode.
+    ### STEP_ONCE_OFF: Turn off single step mode.
+    ### STEP_ONCE_ON: Turn on single step mode.
+    """
+
     RESET: tuple[str, int] = ("ERESET", 0)
     MOTOR_ON: tuple[str, int] = ("ZPOW ON", 0)
     MOTOR_OFF: tuple[str, int] = ("ZPOW OFF", 0)
@@ -61,8 +92,9 @@ class TelnetFlag:
 
 
 class RobotConnection:
-    def __init__(self, host: str) -> None:
+    def __init__(self, host: str, show_dialog: Callable[[str], None]) -> None:
         self._telnet_selector: type = SelectSelector
+        self.__show_dialog: Callable[[str], None] = show_dialog
         self.host: str = host.split("/")[0]
         self.port: int = int(host.split("/")[1])
         self.raw_queue: bytes = b""
@@ -72,15 +104,22 @@ class RobotConnection:
         self.iac_sequence: bytes = b""
         self.subnegotiation: bool = False
         self.subnegotiation_data_queue: bytes = b""
-        self.socket: socket = create_connection((self.host, self.port))
+        self.socket: socket = socket()
+        self.logged_in: bool = False
 
-    def __del__(self) -> None:
-        self.close()
+    # def __del__(self) -> None:
+    #     self.close()
 
     def login(self, username: str = "as") -> None:
+        if self.logged_in:
+            raise Exception("Already logged in")
+        self.socket = create_connection((self.host, self.port))
         self.read_until_match("login:")
         self.__write(username)
         self.read_until_match(">")
+        self.logged_in = True
+        self.initialize()
+        self.__show_dialog("Connected and logged in!")
 
     def status(self) -> dict[RobotStatus, bool]:
         self.__write("SWITCH")
@@ -105,6 +144,8 @@ class RobotConnection:
         }
 
     def send(self, command: tuple[str, int], arg: "RobotCartesianPoint | str | None" = None) -> None:
+        if not self.logged_in:
+            raise Exception("Not logged in")
         match command[1]:
             case 0:
                 self.__write(command[0])
@@ -122,12 +163,18 @@ class RobotConnection:
         sleep(0.1)
 
     def close(self) -> None:
-        self.end_of_file = True
-        self.iac_sequence = b""
-        self.subnegotiation = False
-        if self.socket:
+        self.raw_queue: bytes = b""
+        self.raw_queue_index: int = 0
+        self.cooked_queue: bytes = b""
+        self.end_of_file: bool = False
+        self.iac_sequence: bytes = b""
+        self.subnegotiation: bool = False
+        self.subnegotiation_data_queue: bytes = b""
+        if self.logged_in:
             self.__write("signal -2011")
+            self.__show_dialog("Logged out and disconnected!")
             self.socket.close()
+            self.logged_in = False
 
     def read_until_match(self, match: str) -> str:
         match_encoded: bytes = match.encode("ascii")
@@ -146,6 +193,8 @@ class RobotConnection:
         raise EOFError
 
     def write_program(self, program: str, name: str) -> None:
+        if not self.logged_in:
+            raise Exception("Not logged in")
         self.__clear_queue()
         self.__write("KILL")
         self.__write("1")
@@ -156,6 +205,23 @@ class RobotConnection:
         self.__write("E")
         self.__write("\n")
         sleep(0.1)
+
+    def initialize(self) -> None:
+        if not self.logged_in:
+            raise Exception("Not logged in")
+        status: dict[RobotStatus, bool] = self.status()
+        if status[RobotStatus.ERROR]:
+            self.send(RobotCommand.RESET)
+        if status[RobotStatus.CONTINUOUS_PATH]:
+            self.send(RobotCommand.CONTINUOUS_PATH_OFF)
+        if status[RobotStatus.REPEAT_ONCE]:
+            self.send(RobotCommand.REPEAT_ONCE_ON)
+        if status[RobotStatus.STEP_ONCE]:
+            self.send(RobotCommand.STEP_ONCE_OFF)
+        if not status[RobotStatus.MOTOR_POWERED]:
+            self.send(RobotCommand.MOTOR_ON)
+        if status[RobotStatus.TEACH_MODE] or status[RobotStatus.TEACH_LOCK] or status[RobotStatus.HOLD] or not status[RobotStatus.REPEAT_MODE]:
+            raise Exception("Robot is in an invalid state")
 
     def __write(self, buffer: str) -> None:
         buffer_encoded: bytes = buffer.encode("ascii") + b"\r\n"

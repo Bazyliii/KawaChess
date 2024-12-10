@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 from flet import ButtonStyle, ElevatedButton, IconButton, RoundedRectangleBorder, icons
 
-from kawachess import colors
+from kawachess.colors import ACCENT_COLOR_1, ACCENT_COLOR_3, BLUE, GREEN, GREY, RED, WHITE
 
 
 class Button(ElevatedButton):
@@ -11,11 +11,12 @@ class Button(ElevatedButton):
         self.text = text
         self.on_click = on_click
         self.icon = icon
-        self.bgcolor = colors.ACCENT_COLOR_1
-        self.icon_color = colors.ACCENT_COLOR_3
+        self.bgcolor = ACCENT_COLOR_1
+        self.icon_color = ACCENT_COLOR_3
         self.height = 50
-        self.color = colors.WHITE
+        self.color = WHITE
         self.width = 200
+        self.style = ButtonStyle(shape=RoundedRectangleBorder(radius=5))
 
 
 class CloseButton(IconButton):
@@ -24,8 +25,8 @@ class CloseButton(IconButton):
         self.icon = icons.CLOSE
         self.icon_size = 13
         self.on_click = on_click
-        self.icon_color = colors.GREY
-        self.hover_color = colors.RED
+        self.icon_color = GREY
+        self.hover_color = RED
         self.style = ButtonStyle(shape=RoundedRectangleBorder(radius=1))
 
 
@@ -34,7 +35,7 @@ class MinimizeButton(CloseButton):
         super().__init__()
         self.icon = icons.MINIMIZE
         self.on_click = on_click
-        self.hover_color = colors.GREEN
+        self.hover_color = GREEN
 
 
 class MaximizeButton(CloseButton):
@@ -42,7 +43,7 @@ class MaximizeButton(CloseButton):
         super().__init__()
         self.icon = icons.CHECK_BOX_OUTLINE_BLANK
         self.on_click = on_click
-        self.hover_color = colors.GREEN
+        self.hover_color = GREEN
         self.selected = False
         self.selected_icon = icons.COPY_OUTLINED
-        self.hover_color = colors.BLUE
+        self.hover_color = BLUE
