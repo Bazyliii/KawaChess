@@ -60,9 +60,9 @@ class DatabaseContainer(Column):
         self.expand = True
         self.visible = False
         self.scroll = ScrollMode.ADAPTIVE
+        self.height = 10000
 
     def update_game_data(self) -> None:
-        # database = ChessDatabase("chess.db")
         with ChessDatabase("chess.db") as database:
             self.controls = (
                 DataTable(
@@ -70,36 +70,35 @@ class DatabaseContainer(Column):
                         DataColumn(Text("ID"), heading_row_alignment=MainAxisAlignment.CENTER),
                         DataColumn(Text("White Player"), heading_row_alignment=MainAxisAlignment.CENTER),
                         DataColumn(Text("Black Player"), heading_row_alignment=MainAxisAlignment.CENTER),
-                    DataColumn(Text("Date"), heading_row_alignment=MainAxisAlignment.CENTER),
-                    DataColumn(Text("Duration"), heading_row_alignment=MainAxisAlignment.CENTER),
-                    DataColumn(Text("Result"), heading_row_alignment=MainAxisAlignment.CENTER),
-                ],
-                rows=[
-                    DataRow(
-                        cells=[
-                            DataCell(Text(str(row[0]))),
-                            DataCell(Text(row[1])),
-                            DataCell(Text(row[2])),
-                            DataCell(Text(row[3])),
-                            DataCell(Text(row[4])),
-                            DataCell(Text(row[10])),
-                        ],
-                    )
-                    for row in database.get_game_data()
-                ],
-                width=10000,
-                sort_column_index=0,
-                data_row_max_height=50,
-                vertical_lines=BorderSide(2, colors.ACCENT_COLOR_1),
-                horizontal_lines=BorderSide(2, colors.ACCENT_COLOR_1),
-                heading_row_color=colors.ACCENT_COLOR_1,
-                heading_text_style=TextStyle(
-                    weight=FontWeight.BOLD,
-                    color=colors.ACCENT_COLOR_3,
+                        DataColumn(Text("Date"), heading_row_alignment=MainAxisAlignment.CENTER),
+                        DataColumn(Text("Duration"), heading_row_alignment=MainAxisAlignment.CENTER),
+                        DataColumn(Text("Result"), heading_row_alignment=MainAxisAlignment.CENTER),
+                    ],
+                    rows=[
+                        DataRow(
+                            cells=[
+                                DataCell(Text(str(row[0]))),
+                                DataCell(Text(row[1])),
+                                DataCell(Text(row[2])),
+                                DataCell(Text(row[3])),
+                                DataCell(Text(row[4])),
+                                DataCell(Text(row[10])),
+                            ],
+                        )
+                        for row in database.get_game_data()
+                    ],
+                    width=10000,
+                    sort_column_index=0,
+                    data_row_max_height=50,
+                    vertical_lines=BorderSide(2, colors.ACCENT_COLOR_1),
+                    horizontal_lines=BorderSide(2, colors.ACCENT_COLOR_1),
+                    heading_row_color=colors.ACCENT_COLOR_1,
+                    heading_text_style=TextStyle(
+                        weight=FontWeight.BOLD,
+                        color=colors.ACCENT_COLOR_3,
+                    ),
                 ),
-            ),
-        )
-        # database.close()
+            )
         self.update()
 
 
