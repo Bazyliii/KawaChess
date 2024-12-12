@@ -104,6 +104,12 @@ class ChessDatabase:
         if self.connection:
             self.connection.close()
 
+    def __exit__(self, exc_type, exc_value, exc_traceback) -> None:
+        self.close()
+
+    def __enter__(self) -> "ChessDatabase":
+        return self
+
     @staticmethod
     def get_game_results(game: Game) -> int:
         game_board: Board = game.board()
@@ -248,15 +254,14 @@ class GameContainer(Column):
             self.end_game()
 
     def add_game_data_to_db(self, game: Game) -> None:
-        database: ChessDatabase = ChessDatabase("chess.db")
-        database.add_game_data(
-            game,
-            self.__start_datetime,
-            datetime.now(TIMEZONE) - self.__start_datetime,
-            self.__pending_game_stockfish_skill_lvl,
-            ("Stockfish", self.player_name),
-        )
-        database.close()
+        with ChessDatabase("chess.db") as database:
+            database.add_game_data(
+                game,
+                self.__start_datetime,
+                datetime.now(TIMEZONE) - self.__start_datetime,
+                self.__pending_game_stockfish_skill_lvl,
+                ("Stockfish", self.player_name),
+            )
         self.board = Board()
         self.__game_status = False
         self.update()

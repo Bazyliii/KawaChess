@@ -26,6 +26,8 @@ from flet import (
     NavigationRailDestination,
     NavigationRailLabelType,
     Page,
+    Radio,
+    RadioGroup,
     RoundedRectangleBorder,
     Row,
     ScrollMode,
@@ -60,13 +62,14 @@ class DatabaseContainer(Column):
         self.scroll = ScrollMode.ADAPTIVE
 
     def update_game_data(self) -> None:
-        database = ChessDatabase("chess.db")
-        self.controls = (
-            DataTable(
-                columns=[
-                    DataColumn(Text("ID"), heading_row_alignment=MainAxisAlignment.CENTER),
-                    DataColumn(Text("White Player"), heading_row_alignment=MainAxisAlignment.CENTER),
-                    DataColumn(Text("Black Player"), heading_row_alignment=MainAxisAlignment.CENTER),
+        # database = ChessDatabase("chess.db")
+        with ChessDatabase("chess.db") as database:
+            self.controls = (
+                DataTable(
+                    columns=[
+                        DataColumn(Text("ID"), heading_row_alignment=MainAxisAlignment.CENTER),
+                        DataColumn(Text("White Player"), heading_row_alignment=MainAxisAlignment.CENTER),
+                        DataColumn(Text("Black Player"), heading_row_alignment=MainAxisAlignment.CENTER),
                     DataColumn(Text("Date"), heading_row_alignment=MainAxisAlignment.CENTER),
                     DataColumn(Text("Duration"), heading_row_alignment=MainAxisAlignment.CENTER),
                     DataColumn(Text("Result"), heading_row_alignment=MainAxisAlignment.CENTER),
@@ -96,7 +99,7 @@ class DatabaseContainer(Column):
                 ),
             ),
         )
-        database.close()
+        # database.close()
         self.update()
 
 
@@ -169,26 +172,26 @@ class SettingsContainer(Column):
                 hint_style=TextStyle(weight=FontWeight.BOLD),
             ),
             Text("Player piece color:", size=25),
-            flet.RadioGroup(
+            RadioGroup(
                 content=Row(
                     [
-                        flet.Radio(
+                        Radio(
                             value="white",
                             label="White",
                             active_color=colors.ACCENT_COLOR_3,
                         ),
-                        flet.Radio(
+                        Radio(
                             value="black",
                             label="Black",
                             active_color=colors.ACCENT_COLOR_3,
                         ),
-                        flet.Radio(
+                        Radio(
                             value="random",
                             label="Random",
                             active_color=colors.ACCENT_COLOR_3,
                         ),
                     ],
-                    alignment=flet.MainAxisAlignment.CENTER,
+                    alignment=MainAxisAlignment.CENTER,
                 ),
                 value="random",
             ),
@@ -216,7 +219,7 @@ class SettingsContainer(Column):
                         on_click=lambda _: self.robot.close(),
                     ),
                 ],
-                alignment=flet.MainAxisAlignment.CENTER,
+                alignment=MainAxisAlignment.CENTER,
             ),
         ]
 
