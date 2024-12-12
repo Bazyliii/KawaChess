@@ -1,9 +1,11 @@
 from base64 import b64encode
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from dataclasses import dataclass
+from datetime import datetime
 from os.path import exists
 from sqlite3 import Connection, Cursor, connect
 from time import sleep
+from types import TracebackType
 from typing import TYPE_CHECKING, Final
 
 from chess import Board, Move, svg
@@ -13,7 +15,7 @@ from cv2 import CAP_PROP_FPS, VideoCapture, imencode, resize
 from flet import Column, CrossAxisAlignment, FilterQuality, Image, MainAxisAlignment, Row, icons
 from pytz import BaseTzInfo, timezone
 
-from kawachess.colors import ACCENT_COLOR_1, ACCENT_COLOR_2, ACCENT_COLOR_3, ACCENT_COLOR_4, BLUE, GREEN, GREY, MAIN_COLOR, RED, WHITE
+from kawachess.colors import ACCENT_COLOR_1, ACCENT_COLOR_2, ACCENT_COLOR_3, ACCENT_COLOR_4, WHITE
 from kawachess.flet_components import Button
 from kawachess.robot import RobotConnection
 
@@ -21,6 +23,45 @@ if TYPE_CHECKING:
     from numpy import ndarray
 
 TIMEZONE: Final[BaseTzInfo] = timezone("Europe/Warsaw")
+
+
+@dataclass
+class GameData:
+    game_result: int
+    start_datetime: str
+    duration: str
+    stockfish_skill_level: int
+    players: tuple[str, str]
+    moves: str
+    move_count: int
+    board_fen: str
+
+    def __init__(self, board: Board, stockfish_skill_level: int, start_datetime: datetime, end_datetime: datetime, players: tuple[str, str]) -> None:
+        game: Game = Game().from_board(board)
+        self.stockfish_skill_level = stockfish_skill_level
+        self.start_datetime = start_datetime.strftime("%d-%m-%Y %H:%M:%S")
+        self.duration = str(end_datetime - start_datetime).split(".")[0]
+        self.players = players
+        self.moves = str(game.mainline_moves())
+        self.move_count = board.fullmove_number
+        self.board_fen = board.fen()
+        results: dict[int, bool] = {
+            2: game.headers["Result"] == "1-0",
+            3: game.headers["Result"] == "0-1",
+            4: board.is_fivefold_repetition(),
+            5: board.is_stalemate(),
+            6: board.is_fifty_moves(),
+            7: board.is_insufficient_material(),
+            8: not any(
+                (
+                    board.is_fivefold_repetition(),
+                    board.is_stalemate(),
+                    board.is_fifty_moves(),
+                    board.is_insufficient_material(),
+                ),
+            ),
+        }
+        self.game_result = next((key for key, value in results.items() if value), 1)
 
 
 class ChessDatabase:
@@ -46,7 +87,6 @@ class ChessDatabase:
                             ("DRAW BY STALEMATE"),
                             ("DRAW BY FIFTY-MOVE RULE"),
                             ("DRAW BY INSUFFICIENT MATERIAL"),
-                            ("DRAW"),
                             ("PLAYER RESIGNED");
                 """,
                 """
@@ -72,64 +112,32 @@ class ChessDatabase:
             self.connection: Connection = connect(self.name)
             self.cursor: Cursor = self.connection.cursor()
 
-    def add_game_data(
-        self,
-        game: Game,
-        start_datetime: datetime,
-        duration: timedelta,
-        stockfish_skill_level: int,
-        players: tuple[str, str] = ("Stockfish", "Player"),
-    ) -> None:
-        board: Board = game.board()
+    def __exit__(self, exc_type: BaseException | None, exc_value: BaseException | None, exc_traceback: TracebackType | None) -> None:  # noqa: PYI036
+        if self.connection:
+            self.connection.close()
+
+    def __enter__(self) -> "ChessDatabase":
+        return self
+
+    def add(self, game_data: GameData) -> None:
         self.cursor.execute(
             """
             INSERT INTO chess_games(white_player, black_player, date, game_duration, result_id,stockfish_skill_level ,move_count, FEN_end_position, PGN_game_sequence)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,  # noqa: E501
             (
-                players[0],
-                players[1],
-                start_datetime.strftime("%d-%m-%Y %H:%M:%S"),
-                str(duration).split(".")[0],
-                self.get_game_results(game),
-                stockfish_skill_level,
-                board.fullmove_number,
-                board.fen(),
-                str(game.mainline_moves()),
+                game_data.players[0],
+                game_data.players[1],
+                game_data.start_datetime,
+                game_data.duration,
+                game_data.game_result,
+                game_data.stockfish_skill_level,
+                game_data.move_count,
+                game_data.board_fen,
+                game_data.moves,
             ),
         )
         self.connection.commit()
-
-    def close(self) -> None:
-        if self.connection:
-            self.connection.close()
-
-    def __exit__(self, exc_type, exc_value, exc_traceback) -> None:
-        self.close()
-
-    def __enter__(self) -> "ChessDatabase":
-        return self
-
-    @staticmethod
-    def get_game_results(game: Game) -> int:
-        game_board: Board = game.board()
-
-        result: dict[int, bool] = {
-            9: "resigned" in game.headers["Result"],
-            2: "1-0" in game.headers["Result"],
-            3: "0-1" in game.headers["Result"],
-            4: "1/2-1/2" in game.headers["Result"] and game_board.is_fivefold_repetition(),
-            5: "1/2-1/2" in game.headers["Result"] and game_board.is_stalemate(),
-            6: "1/2-1/2" in game.headers["Result"] and game_board.is_fifty_moves(),
-            7: "1/2-1/2" in game.headers["Result"] and game_board.is_insufficient_material(),
-            8: "1/2-1/2" in game.headers["Result"]
-            and not game_board.is_fivefold_repetition()
-            and not game_board.is_stalemate()
-            and not game_board.is_fifty_moves()
-            and not game_board.is_insufficient_material(),
-        }
-
-        return next((key for key, value in result.items() if value), 1)
 
     def get_game_data(self) -> list[tuple]:
         self.cursor.execute(
@@ -241,6 +249,8 @@ class GameContainer(Column):
             return
         self.__start_datetime = datetime.now(TIMEZONE)
         self.__game_status = True
+        self.__chess_board_svg.src = svg.board(self.board, colors=self.__board_colors)
+        self.update()
         self.__pending_game_stockfish_skill_lvl = self.skill_level
         while self.__game_status and not self.board.is_game_over():
             engine_move: Move | None = self.__engine.play(self.board, Limit(time=1.0)).move
@@ -253,15 +263,10 @@ class GameContainer(Column):
         if self.board.is_game_over():
             self.end_game()
 
-    def add_game_data_to_db(self, game: Game) -> None:
+    def add_data_to_db(self, board: Board) -> None:
+        game_data = GameData(board, self.__pending_game_stockfish_skill_lvl, self.__start_datetime, datetime.now(TIMEZONE), ("Stockfish", self.player_name))
         with ChessDatabase("chess.db") as database:
-            database.add_game_data(
-                game,
-                self.__start_datetime,
-                datetime.now(TIMEZONE) - self.__start_datetime,
-                self.__pending_game_stockfish_skill_lvl,
-                ("Stockfish", self.player_name),
-            )
+            database.add(game_data)
         self.board = Board()
         self.__game_status = False
         self.update()
@@ -269,21 +274,18 @@ class GameContainer(Column):
     def end_game(self) -> None:
         if not self.__game_status:
             return
-        game: Game = Game().from_board(self.board)
-        self.dialog(game.headers["Result"])
-        self.add_game_data_to_db(game)
+        self.dialog("Game over!")
+        self.add_data_to_db(self.board)
 
     def resign_game(self) -> None:
         if not self.__game_status:
             return
-        game: Game = Game().from_board(self.board)
-        game.headers["Result"] = "resigned"
         self.dialog("Player resigned!")
-        self.add_game_data_to_db(game)
+        self.add_data_to_db(self.board)
 
     def close(self) -> None:
         if self.__game_status:
-            self.add_game_data_to_db(Game().from_board(self.board))
+            self.add_data_to_db(self.board)
         self.__opencv_detection.close()
         self.__engine.quit()
 
