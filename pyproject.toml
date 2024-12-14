@@ -1,118 +1,70 @@
 # python -m pip install .
 
 [build-system]
-requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
+requires = ["setuptools"]
 
 [project]
-name = "kawachess"
-dynamic = ["version"]
-license = {text = "MIT License"}
-requires-python = ">=3.13.1"
 authors = [{name = "Jarosław Wierzbowski", email = "jaroslawierzbowski2001@gmail.com"}]
 dependencies = [
-    "chess >= 1.11.1",
-    "py-cpuinfo >= 9.0.0",
-    "pytz >= 2024.2",
-    "flet >= 0.25.2",
-    "opencv-python >= 4.10.0.84",
-    "ruff >= 0.8.3"
+  "chess >= 1.11.1",
+  "pytz >= 2024.2",
+  "flet >= 0.25.2",
+  "opencv-python >= 4.10.0.84",
+  "ruff >= 0.8.3",
 ]
+dynamic = ["version"]
+license = {text = "MIT License"}
+name = "kawachess"
+requires-python = ">=3.13.1"
 
 [tool.ruff]
 exclude = [
-    "KAWASAKI",
-    ".git",
-    "piece_svg",
-    "chess.db",
-    ".gitignore",
-    ".svg",
-    ".txt",
-    ".pyc",
+  "KAWASAKI",
+  ".git",
+  "piece_svg",
+  "chess.db",
+  ".gitignore",
+  ".svg",
+  ".txt",
+  ".pyc",
 ]
 
-line-length = 160
 indent-width = 4
+line-length = 160
 target-version = "py313"
 
 [tool.ruff.lint]
-
-select = [
-        "W",
-        "A",
-        "PLC",
-        "PLE",
-        "PLW",
-        "I",
-        "ANN",
-        "N",
-        "E",
-        "S",
-        "F",
-        "C",
-        "UP",
-        "YTT",
-        "ASYNC",
-        "FBT",
-        "B",
-        "COM",
-        "DTZ",
-        "EM",
-        "EXE",
-        "FA",
-        "ISC",
-        "ICN",
-        "PIE",
-        "T",
-        "PYI",
-        "Q",
-        "RET",
-        "SIM",
-        "TID",
-        "TCH",
-        "INT",
-        "ARG",
-        "FIX",
-        "PLR",
-        "TRY",
-        "FLY",
-        "PERF",
-        "FURB",
-        "RUF",
-        "ALL"
-]
+select = ["ALL"]
 
 ignore = [
-    "W191",
-    "FURB101",
-    "FURB103",
-    "FURB177",
-    "TRY400",
-    "PLE1205",
-    "ANN101",
-    "D100",
-    "CPY001",
-    "D102",
-    "D107",
-    "D101",
-    "D105",
-    "D104"
+  "W191",
+  "FURB101",
+  "FURB103",
+  "FURB177",
+  "TRY400",
+  "PLE1205",
+  "ANN101",
+  "D100",
+  "CPY001",
+  "D102",
+  "D107",
+  "D101",
+  "D105",
+  "D104",
 ]
 
-fixable = [
-    "ALL"
-]
-
+fixable = ["ALL"]
 
 unfixable = ["B"]
 
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [tool.ruff.format]
-quote-style = "double"
 indent-style = "space"
-skip-magic-trailing-comma = false
 line-ending = "auto"
+quote-style = "double"
+skip-magic-trailing-comma = false
 
 [tool.setuptools]
 py-modules = []
