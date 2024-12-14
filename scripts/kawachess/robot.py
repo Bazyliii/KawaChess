@@ -33,7 +33,7 @@ class RobotStatus(Enum):
     STEP_ONCE = auto()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RobotCommand:
     """
     ### RESET: Reset the robot.
@@ -68,7 +68,7 @@ class RobotCommand:
     STEP_ONCE_ON: tuple[str, int] = ("STP_ONCE ON", 0)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TelnetFlag:
     IAC: bytes = bytes([255])
     DONT: bytes = bytes([254])
