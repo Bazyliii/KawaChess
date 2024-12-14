@@ -191,13 +191,13 @@ class OpenCVDetection(Image):
 
 
 class GameContainer(Column):
-    def __init__(self, board_size: int, dialog: Callable[[str], None], robot: RobotConnection, skill_level: int = 20) -> None:
+    def __init__(self, board_size: int, dialog: Callable[[str], None], robot: RobotConnection) -> None:
         super().__init__()
         self.dialog: Callable[[str], None] = dialog
         self.robot: RobotConnection = robot
-        self.skill_level: int = skill_level
+        self.__skill_level: int
         self.__engine: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
-        self.__engine.configure({"Threads": "2", "Hash": "512", "Skill Level": self.skill_level})
+        self.__engine.configure({"Threads": "2", "Hash": "512"})
         self.__game_status: bool = False
         self.__start_datetime: datetime
         self.__pending_game_stockfish_skill_lvl: int
@@ -212,7 +212,7 @@ class GameContainer(Column):
         }
         self.board: Board = Board()
         self.__chess_board_svg: Image = Image(svg.board(self.board, colors=self.__board_colors), width=board_size, height=board_size)
-        self.player_name: str = "Player"
+        self.__player_name: str = "Player"
         self.expand = True
         self.bgcolor: str = ACCENT_COLOR_1
         self.alignment = MainAxisAlignment.CENTER
@@ -247,11 +247,12 @@ class GameContainer(Column):
     def start_game(self) -> None:
         if self.__game_status:
             return
+        self.__engine.configure({"Skill Level": self.__skill_level})
         self.__start_datetime = datetime.now(TIMEZONE)
         self.__game_status = True
         self.__chess_board_svg.src = svg.board(self.board, colors=self.__board_colors)
         self.update()
-        self.__pending_game_stockfish_skill_lvl = self.skill_level
+        self.__pending_game_stockfish_skill_lvl = self.__skill_level
         while self.__game_status and not self.board.is_game_over():
             engine_move: Move | None = self.__engine.play(self.board, Limit(time=1.0)).move
             if engine_move is None or engine_move not in self.board.legal_moves:
@@ -264,7 +265,7 @@ class GameContainer(Column):
             self.end_game()
 
     def add_data_to_db(self, board: Board) -> None:
-        game_data = GameData(board, self.__pending_game_stockfish_skill_lvl, self.__start_datetime, datetime.now(TIMEZONE), ("Stockfish", self.player_name))
+        game_data = GameData(board, self.__pending_game_stockfish_skill_lvl, self.__start_datetime, datetime.now(TIMEZONE), ("Stockfish", self.__player_name))
         with ChessDatabase("chess.db") as database:
             database.add(game_data)
         self.board = Board()
@@ -289,5 +290,18 @@ class GameContainer(Column):
         self.__opencv_detection.close()
         self.__engine.quit()
 
-    def set_player_name(self, player_name: str) -> None:
-        self.player_name = player_name
+    @property
+    def player_name(self) -> str:
+        return self.__player_name
+
+    @player_name.setter
+    def player_name(self, player_name: str) -> None:
+        self.__player_name: str = player_name
+
+    @property
+    def skill_level(self) -> int:
+        return self.__skill_level
+
+    @skill_level.setter
+    def skill_level(self, skill_level: int) -> None:
+        self.__skill_level: int = skill_level
