@@ -14,6 +14,7 @@ from flet import (
     FontWeight,
     Icon,
     IconButton,
+    Icons,
     Image,
     MainAxisAlignment,
     Markdown,
@@ -35,7 +36,6 @@ from flet import (
     WindowDragArea,
     alignment,
     app,
-    icons,
 )
 from kawachess import ChessDatabase, GameContainer, RobotConnection, colors
 from kawachess.flet_components import Button, CloseButton, MaximizeButton, MinimizeButton
@@ -72,7 +72,7 @@ class DatabaseContainer(Column):
                                 DataCell(Text(row[4])),
                                 DataCell(Text(str(row[6]))),
                                 DataCell(Text(row[10])),
-                            ],
+                            ]
                         )
                         for row in database.get_game_data()
                     ],
@@ -82,10 +82,7 @@ class DatabaseContainer(Column):
                     vertical_lines=BorderSide(2, colors.ACCENT_COLOR_1),
                     horizontal_lines=BorderSide(2, colors.ACCENT_COLOR_1),
                     heading_row_color=colors.ACCENT_COLOR_1,
-                    heading_text_style=TextStyle(
-                        weight=FontWeight.BOLD,
-                        color=colors.ACCENT_COLOR_3,
-                    ),
+                    heading_text_style=TextStyle(weight=FontWeight.BOLD, color=colors.ACCENT_COLOR_3),
                 ),
             )
         self.update()
@@ -99,9 +96,7 @@ class LogsContainer(Column):
         self.alignment = MainAxisAlignment.CENTER
         self.horizontal_alignment = CrossAxisAlignment.CENTER
         self.visible = False
-        self.controls = [
-            Text("LOGS", size=40, weight=FontWeight.BOLD, text_align=TextAlign.CENTER),
-        ]
+        self.controls = [Text("LOGS", size=40, weight=FontWeight.BOLD, text_align=TextAlign.CENTER)]
 
 
 class AboutContainer(Column):
@@ -112,31 +107,11 @@ class AboutContainer(Column):
         self.alignment = MainAxisAlignment.CENTER
         self.horizontal_alignment = CrossAxisAlignment.CENTER
         self.controls = [
-            Image(
-                src="logo.png",
-                width=200,
-                height=200,
-            ),
-            Text(
-                "KawaChess\nEngineering Project",
-                size=40,
-                weight=FontWeight.BOLD,
-                text_align=TextAlign.CENTER,
-            ),
-            Text(
-                "A chess app for Kawasaki FS03N robot",
-                size=12,
-                text_align=TextAlign.CENTER,
-            ),
-            Text(
-                "Made with ❤️ by Jarosław Wierzbowski",
-                size=12,
-                text_align=TextAlign.CENTER,
-            ),
-            Markdown(
-                "[GitHub Repository](https://github.com/Bazyliii/KawaChess)",
-                auto_follow_links=True,
-            ),
+            Image(src="logo.png", width=200, height=200),
+            Text("KawaChess\nEngineering Project", size=40, weight=FontWeight.BOLD, text_align=TextAlign.CENTER),
+            Text("A chess app for Kawasaki FS03N robot", size=12, text_align=TextAlign.CENTER),
+            Text("Made with ❤️ by Jarosław Wierzbowski", size=12, text_align=TextAlign.CENTER),
+            Markdown("[GitHub Repository](https://github.com/Bazyliii/KawaChess)", auto_follow_links=True),
         ]
 
 
@@ -163,37 +138,25 @@ class SettingsContainer(Column):
             on_change=lambda e: self.__control_changed(e, self.game, "player_name"),
         )
         self.__skill_slider: Slider = Slider(
-                min=1,
-                max=20,
-                divisions=19,
-                width=400,
-                label="{value}",
-                value=20,
-                thumb_color=colors.ACCENT_COLOR_3,
-                active_color=colors.ACCENT_COLOR_3,
-                on_change=lambda e: self.__control_changed(e, self.game, "skill_level"),
-            )
+            min=1,
+            max=20,
+            divisions=19,
+            width=400,
+            label="{value}",
+            value=20,
+            thumb_color=colors.ACCENT_COLOR_3,
+            active_color=colors.ACCENT_COLOR_3,
+            on_change=lambda e: self.__control_changed(e, self.game, "skill_level"),
+        )
         self.controls = [
             self.__nickname_field,
             Text("Player piece color:", size=25),
             RadioGroup(
                 content=Row(
                     [
-                        Radio(
-                            value="white",
-                            label="White",
-                            active_color=colors.ACCENT_COLOR_3,
-                        ),
-                        Radio(
-                            value="black",
-                            label="Black",
-                            active_color=colors.ACCENT_COLOR_3,
-                        ),
-                        Radio(
-                            value="random",
-                            label="Random",
-                            active_color=colors.ACCENT_COLOR_3,
-                        ),
+                        Radio(value="white", label="White", active_color=colors.ACCENT_COLOR_3),
+                        Radio(value="black", label="Black", active_color=colors.ACCENT_COLOR_3),
+                        Radio(value="random", label="Random", active_color=colors.ACCENT_COLOR_3),
                     ],
                     alignment=MainAxisAlignment.CENTER,
                 ),
@@ -203,16 +166,8 @@ class SettingsContainer(Column):
             self.__skill_slider,
             Row(
                 [
-                    Button(
-                        text="Reconnect robot",
-                        icon=icons.REPLAY_OUTLINED,
-                        on_click=lambda _: self.robot.login(),
-                    ),
-                    Button(
-                        text="Disconnect robot",
-                        icon=icons.BLOCK_OUTLINED,
-                        on_click=lambda _: self.robot.close(),
-                    ),
+                    Button(text="Reconnect robot", icon=Icons.REPLAY_OUTLINED, on_click=lambda _: self.robot.login()),
+                    Button(text="Disconnect robot", icon=Icons.BLOCK_OUTLINED, on_click=lambda _: self.robot.close()),
                 ],
                 alignment=MainAxisAlignment.CENTER,
             ),
@@ -255,7 +210,7 @@ class KawaChessApp:
                     [
                         Image(src="logo.png", width=16, height=16),
                         Text(self.__page.title, color=colors.WHITE, overflow=TextOverflow.ELLIPSIS, expand=True, size=16),
-                    ],
+                    ]
                 ),
                 expand=True,
                 maximizable=True,
@@ -264,19 +219,15 @@ class KawaChessApp:
             elevation_on_scroll=0,
             elevation=0,
             title_spacing=10,
-            actions=[
-                self.__minimize_button,
-                self.__maximize_button,
-                self.__close_button,
-            ],
+            actions=[self.__minimize_button, self.__maximize_button, self.__close_button],
         )
         self.__navigation_rail: NavigationRail = NavigationRail(
             destinations=[
-                NavigationRailDestination(icon=icons.PLAY_ARROW_OUTLINED, label="Game"),
-                NavigationRailDestination(icon=icons.STACKED_LINE_CHART_OUTLINED, label="Database"),
-                NavigationRailDestination(icon=icons.RECEIPT_LONG_OUTLINED, label="Logs"),
-                NavigationRailDestination(icon=icons.SETTINGS_OUTLINED, label="Settings"),
-                NavigationRailDestination(icon=icons.INFO_OUTLINED, label="About"),
+                NavigationRailDestination(icon=Icons.PLAY_ARROW_OUTLINED, label="Game"),
+                NavigationRailDestination(icon=Icons.STACKED_LINE_CHART_OUTLINED, label="Database"),
+                NavigationRailDestination(icon=Icons.RECEIPT_LONG_OUTLINED, label="Logs"),
+                NavigationRailDestination(icon=Icons.SETTINGS_OUTLINED, label="Settings"),
+                NavigationRailDestination(icon=Icons.INFO_OUTLINED, label="About"),
             ],
             width=72,
             indicator_shape=RoundedRectangleBorder(radius=5),
@@ -336,7 +287,7 @@ class KawaChessApp:
             shape=RoundedRectangleBorder(radius=5),
             content=Text(msg, text_align=TextAlign.CENTER, size=27),
             bgcolor=colors.ACCENT_COLOR_1,
-            icon=Icon(icons.INFO_OUTLINED, size=42, color=colors.ACCENT_COLOR_3),
+            icon=Icon(Icons.INFO_OUTLINED, size=42, color=colors.ACCENT_COLOR_3),
         )
         self.__page.overlay.append(dialog)
         dialog.open = True

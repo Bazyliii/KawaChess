@@ -2,7 +2,7 @@ from base64 import b64encode
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from os.path import exists
+from pathlib import Path
 from sqlite3 import Connection, Cursor, connect
 from time import sleep
 from types import TracebackType
@@ -67,7 +67,7 @@ class GameData:
 class ChessDatabase:
     def __init__(self, name: str) -> None:
         self.name: str = name
-        if not exists(self.name):
+        if not Path(self.name).exists():
             self.connection: Connection = connect(self.name)
             self.cursor: Cursor = self.connection.cursor()
             for query in (
@@ -212,7 +212,7 @@ class GameContainer(Column):
         }
         self.board: Board = Board()
         self.__chess_board_svg: Image = Image(svg.board(self.board, colors=self.__board_colors), width=board_size, height=board_size)
-        self.__player_name: str = "Player"
+        self.__player_name: str
         self.expand = True
         self.bgcolor: str = ACCENT_COLOR_1
         self.alignment = MainAxisAlignment.CENTER

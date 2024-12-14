@@ -1,24 +1,27 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
-from re import Pattern, compile, findall, split, sub
+from re import Pattern, findall, split, sub
+from re import compile as regex_compile
 from selectors import EVENT_READ, SelectSelector
 from socket import create_connection, socket
 from time import sleep
+from typing import NamedTuple
 
 
 class RobotStatus(Enum):
-    """
-    ### ERROR: The robot is in an error state.
-    ### MOTOR_POWERED: The robot is powered on.
-    ### REPEAT_MODE: The robot is in repeat mode.
-    ### TEACH_MODE: The robot is in teach mode.
-    ### TEACH_LOCK: The robot is locked in teach mode.
-    ### BUSY: The robot is busy.
-    ### HOLD: The robot is on hold.
-    ### CONTINUOUS_PATH: The robot is in continuous path mode.
-    ### REPEAT_ONCE: The robot is in repeat once mode.
-    ### STEP_ONCE: The robot is in single step mode.
+    """Robot status.
+
+    ERROR: The robot is in an error state.
+    MOTOR_POWERED: The robot is powered on.
+    REPEAT_MODE: The robot is in repeat mode.
+    TEACH_MODE: The robot is in teach mode.
+    TEACH_LOCK: The robot is locked in teach mode.
+    BUSY: The robot is busy.
+    HOLD: The robot is on hold.
+    CONTINUOUS_PATH: The robot is in continuous path mode.
+    REPEAT_ONCE: The robot is in repeat once mode.
+    STEP_ONCE: The robot is in single step mode.
     """
 
     ERROR = auto()
@@ -35,21 +38,22 @@ class RobotStatus(Enum):
 
 @dataclass(frozen=True, slots=True)
 class RobotCommand:
-    """
-    ### RESET: Reset the robot.
-    ### MOTOR_ON: Turn on the motor.
-    ### MOTOR_OFF: Turn off the motor.
-    ### HOME: Move the robot to the home position.
-    ### MOVE_TO_POINT: Move the robot to a point.
-    ### PICKUP: Move the robot to the pickup position.
-    ### PUTDOWN: Move the robot to the putdown position.
-    ### EXECUTE_PROG: Execute a program.
-    ### CONTINUOUS_PATH_ON: Turn on continuous path mode.
-    ### CONTINUOUS_PATH_OFF: Turn off continuous path mode.
-    ### REPEAT_ONCE_OFF: Turn off repeat once mode.
-    ### REPEAT_ONCE_ON: Turn on repeat once mode.
-    ### STEP_ONCE_OFF: Turn off single step mode.
-    ### STEP_ONCE_ON: Turn on single step mode.
+    """Robot commands.
+
+    RESET: Reset the robot.
+    MOTOR_ON: Turn on the motor.
+    MOTOR_OFF: Turn off the motor.
+    HOME: Move the robot to the home position.
+    MOVE_TO_POINT: Move the robot to a point.
+    PICKUP: Move the robot to the pickup position.
+    PUTDOWN: Move the robot to the putdown position.
+    EXECUTE_PROG: Execute a program.
+    CONTINUOUS_PATH_ON: Turn on continuous path mode.
+    CONTINUOUS_PATH_OFF: Turn off continuous path mode.
+    REPEAT_ONCE_OFF: Turn off repeat once mode.
+    REPEAT_ONCE_ON: Turn on repeat once mode.
+    STEP_ONCE_OFF: Turn off single step mode.
+    STEP_ONCE_ON: Turn on single step mode.
     """
 
     RESET: tuple[str, int] = ("ERESET", 0)
@@ -94,7 +98,7 @@ class TelnetFlag:
 class RobotConnection:
     def __init__(self, host: str, show_dialog: Callable[[str], None]) -> None:
         self._telnet_selector: type = SelectSelector
-        self.__show_dialog: Callable[[str], None] = show_dialog
+        self.__dialog: Callable[[str], None] = show_dialog
         self.host: str = host.split("/")[0]
         self.port: int = int(host.split("/")[1])
         self.raw_queue: bytes = b""
@@ -107,29 +111,26 @@ class RobotConnection:
         self.socket: socket = socket()
         self.logged_in: bool = False
 
-    # def __del__(self) -> None:
-    #     self.close()
-
     def login(self, username: str = "as") -> None:
         if self.logged_in:
-            raise Exception("Already logged in")
+            return
         self.socket = create_connection((self.host, self.port))
         self.read_until_match("login:")
-        self.__write(username)
+        self.write(username)
         self.read_until_match(">")
         self.logged_in = True
         self.initialize()
-        self.__show_dialog("Connected and logged in!")
+        self.__dialog("Connected and logged in!")
 
     def status(self) -> dict[RobotStatus, bool]:
-        self.__write("SWITCH")
+        self.write("SWITCH")
         message: str = self.read_until_match("Press SPACE key to continue").split("SWITCH\r")[1]
-        split_pattern: Pattern[str] = compile(r" ON| OFF")
-        replace_pattern: Pattern[str] = compile(r"[ \n*\r]")
+        split_pattern: Pattern[str] = regex_compile(r" ON| OFF")
+        replace_pattern: Pattern[str] = regex_compile(r"[ \n*\r]")
         raw_data: list[str] = [sub(replace_pattern, "", s) for s in split(pattern=split_pattern, string=message)][:-1]
         status_data: dict[str, bool] = {key: value == " ON" for key, value in zip(raw_data, findall(split_pattern, string=message), strict=True)}
-        self.__write("\n")
-        self.__clear_queue()
+        self.write("\n")
+        self.clear_queue()
         return {
             RobotStatus.BUSY: status_data["CS"],
             RobotStatus.ERROR: status_data["ERROR"],
@@ -145,20 +146,20 @@ class RobotConnection:
 
     def send(self, command: tuple[str, int], arg: "RobotCartesianPoint | str | None" = None) -> None:
         if not self.logged_in:
-            raise Exception("Not logged in")
+            return
         match command[1]:
             case 0:
-                self.__write(command[0])
+                self.write(command[0])
                 self.read_until_match(">")
             case 1:
                 if type(arg) is RobotCartesianPoint:
-                    self.__write(command[0] + f" {arg.name}")
+                    self.write(command[0] + f" {arg.name}")
                 else:
-                    self.__write(command[0])
+                    self.write(command[0])
                 self.read_until_match("DO motion completed.")
                 sleep(0.3)
             case 2:
-                self.__write(command[0] + f" {arg}")
+                self.write(command[0] + f" {arg}")
                 self.read_until_match("Program completed.")
         sleep(0.1)
 
@@ -171,8 +172,8 @@ class RobotConnection:
         self.subnegotiation: bool = False
         self.subnegotiation_data_queue: bytes = b""
         if self.logged_in:
-            self.__write("signal -2011")
-            self.__show_dialog("Logged out and disconnected!")
+            self.write("signal -2011")
+            self.__dialog("Logged out and disconnected!")
             self.socket.close()
             self.logged_in = False
 
@@ -194,21 +195,21 @@ class RobotConnection:
 
     def write_program(self, program: str, name: str) -> None:
         if not self.logged_in:
-            raise Exception("Not logged in")
-        self.__clear_queue()
-        self.__write("KILL")
-        self.__write("1")
-        self.__write("\n")
-        self.__write(f"EDIT {name}, 1")
+            return
+        self.clear_queue()
+        self.write("KILL")
+        self.write("1")
+        self.write("\n")
+        self.write(f"EDIT {name}, 1")
         for line in program.splitlines():
-            self.__write(line)
-        self.__write("E")
-        self.__write("\n")
+            self.write(line)
+        self.write("E")
+        self.write("\n")
         sleep(0.1)
 
     def initialize(self) -> None:
         if not self.logged_in:
-            raise Exception("Not logged in")
+            return
         status: dict[RobotStatus, bool] = self.status()
         if status[RobotStatus.ERROR]:
             self.send(RobotCommand.RESET)
@@ -221,9 +222,9 @@ class RobotConnection:
         if not status[RobotStatus.MOTOR_POWERED]:
             self.send(RobotCommand.MOTOR_ON)
         if status[RobotStatus.TEACH_MODE] or status[RobotStatus.TEACH_LOCK] or status[RobotStatus.HOLD] or not status[RobotStatus.REPEAT_MODE]:
-            raise Exception("Robot is in an invalid state")
+            self.__dialog("Robot is in an invalid state!")
 
-    def __write(self, buffer: str) -> None:
+    def write(self, buffer: str) -> None:
         buffer_encoded: bytes = buffer.encode("ascii") + b"\r\n"
         if TelnetFlag.IAC in buffer_encoded:
             buffer_encoded = buffer_encoded.replace(TelnetFlag.IAC, TelnetFlag.IAC + TelnetFlag.IAC)
@@ -297,7 +298,7 @@ class RobotConnection:
     def __socket_descriptor(self) -> int:
         return self.socket.fileno()
 
-    def __clear_queue(self) -> None:
+    def clear_queue(self) -> None:
         self.__raw_queue_fill()
         self.__raw_queue_process()
         self.raw_queue = b""
@@ -305,23 +306,36 @@ class RobotConnection:
         self.raw_queue_index = 0
 
 
+class Cartesian(NamedTuple):
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+    o: float = 0.0
+    a: float = 0.0
+    t: float = 0.0
+
+
 class RobotCartesianPoint:
-    def __init__(self, telnet: RobotConnection, name: str, x: float, y: float, z: float, o: float, a: float, t: float) -> None:
+    def __init__(self, telnet: RobotConnection, name: str, point: Cartesian) -> None:
         self.name: str = name
         self.telnet: RobotConnection = telnet
-        self.x: float = x
-        self.y: float = y
-        self.z: float = z
-        self.o: float = o
-        self.a: float = a
-        self.t: float = t
+        self.x: float = point.x
+        self.y: float = point.y
+        self.z: float = point.z
+        self.o: float = point.o
+        self.a: float = point.a
+        self.t: float = point.t
         self.__push_point_to_robot()
 
-    def shift(self, name: str, *, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> "RobotCartesianPoint":
-        return RobotCartesianPoint(self.telnet, name, self.x + x, self.y + y, self.z + z, self.o, self.a, self.t)
+    def shift(self, name: str, shift: Cartesian) -> "RobotCartesianPoint":
+        return RobotCartesianPoint(
+            self.telnet,
+            name,
+            Cartesian(self.x + shift.x, self.y + shift.y, self.z + shift.z, self.o + shift.o, self.a + shift.a, self.t + shift.t),
+        )
 
     def __push_point_to_robot(self) -> None:
-        self.telnet.__write(f"POINT {self.name}")
-        self.telnet.__write(f"{self.x},{self.y},{self.z},{self.o},{self.a},{self.t}")
-        self.telnet.__write("\n")
-        self.telnet.__clear_queue()
+        self.telnet.write(f"POINT {self.name}")
+        self.telnet.write(f"{self.x},{self.y},{self.z},{self.o},{self.a},{self.t}")
+        self.telnet.write("\n")
+        self.telnet.clear_queue()

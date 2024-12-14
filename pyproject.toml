@@ -5,18 +5,18 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "KAWASAKI-Chess"
+name = "kawachess"
 dynamic = ["version"]
 license = {text = "MIT License"}
-requires-python = ">=3.12.7"
+requires-python = ">=3.13.1"
 authors = [{name = "Jarosław Wierzbowski", email = "jaroslawierzbowski2001@gmail.com"}]
 dependencies = [
     "chess >= 1.11.1",
     "py-cpuinfo >= 9.0.0",
     "pytz >= 2024.2",
-    "flet >= 0.25.1",
+    "flet >= 0.25.2",
     "opencv-python >= 4.10.0.84",
-    "flet_timer >= 0.0.13",
+    "ruff >= 0.8.3"
 ]
 
 [tool.ruff]
@@ -28,11 +28,12 @@ exclude = [
     ".gitignore",
     ".svg",
     ".txt",
+    ".pyc",
 ]
 
 line-length = 160
 indent-width = 4
-target-version = "py312"
+target-version = "py313"
 
 [tool.ruff.lint]
 
@@ -77,7 +78,8 @@ select = [
         "FLY",
         "PERF",
         "FURB",
-        "RUF"
+        "RUF",
+        "ALL"
 ]
 
 ignore = [
@@ -87,7 +89,14 @@ ignore = [
     "FURB177",
     "TRY400",
     "PLE1205",
-    "ANN101"
+    "ANN101",
+    "D100",
+    "CPY001",
+    "D102",
+    "D107",
+    "D101",
+    "D105",
+    "D104"
 ]
 
 fixable = [
