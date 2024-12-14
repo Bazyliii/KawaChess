@@ -1,3 +1,5 @@
+from os import getlogin
+
 from flet import (
     AlertDialog,
     AppBar,
@@ -34,7 +36,6 @@ from flet import (
     alignment,
     app,
     icons,
-    padding,
 )
 from kawachess import ChessDatabase, GameContainer, RobotConnection, colors
 from kawachess.flet_components import Button, CloseButton, MaximizeButton, MinimizeButton
@@ -58,6 +59,7 @@ class DatabaseContainer(Column):
                         DataColumn(Text("Black Player"), heading_row_alignment=MainAxisAlignment.CENTER),
                         DataColumn(Text("Date"), heading_row_alignment=MainAxisAlignment.CENTER),
                         DataColumn(Text("Duration"), heading_row_alignment=MainAxisAlignment.CENTER),
+                        DataColumn(Text("Stockfish Skill"), heading_row_alignment=MainAxisAlignment.CENTER),
                         DataColumn(Text("Result"), heading_row_alignment=MainAxisAlignment.CENTER),
                     ],
                     rows=[
@@ -68,6 +70,7 @@ class DatabaseContainer(Column):
                                 DataCell(Text(row[2])),
                                 DataCell(Text(row[3])),
                                 DataCell(Text(row[4])),
+                                DataCell(Text(str(row[6]))),
                                 DataCell(Text(row[10])),
                             ],
                         )
@@ -138,24 +141,40 @@ class AboutContainer(Column):
 
 
 class SettingsContainer(Column):
-    def __init__(self, robot: RobotConnection) -> None:
+    def __init__(self, robot: RobotConnection, game: GameContainer) -> None:
         super().__init__()
         self.robot: RobotConnection = robot
+        self.game: GameContainer = game
         self.expand = True
         self.visible = False
         self.alignment = MainAxisAlignment.CENTER
         self.horizontal_alignment = CrossAxisAlignment.CENTER
-        self.controls = [
-            TextField(
+        self.__nickname_field: TextField = TextField(
+            width=400,
+            text_align=TextAlign.CENTER,
+            bgcolor=colors.ACCENT_COLOR_1,
+            focused_border_color=colors.ACCENT_COLOR_3,
+            border_color=colors.ACCENT_COLOR_1,
+            hint_text="Player nickname",
+            label="Player nickname",
+            focused_border_width=3,
+            hint_style=TextStyle(weight=FontWeight.BOLD),
+            value=getlogin(),
+            on_change=lambda e: self.__control_changed(e, self.game, "player_name"),
+        )
+        self.__skill_slider: Slider = Slider(
+                min=1,
+                max=20,
+                divisions=19,
                 width=400,
-                text_align=TextAlign.CENTER,
-                bgcolor=colors.ACCENT_COLOR_1,
-                focused_border_color=colors.ACCENT_COLOR_3,
-                border_color=colors.ACCENT_COLOR_1,
-                hint_text="Player nickname",
-                focused_border_width=3,
-                hint_style=TextStyle(weight=FontWeight.BOLD),
-            ),
+                label="{value}",
+                value=20,
+                thumb_color=colors.ACCENT_COLOR_3,
+                active_color=colors.ACCENT_COLOR_3,
+                on_change=lambda e: self.__control_changed(e, self.game, "skill_level"),
+            )
+        self.controls = [
+            self.__nickname_field,
             Text("Player piece color:", size=25),
             RadioGroup(
                 content=Row(
@@ -181,16 +200,7 @@ class SettingsContainer(Column):
                 value="random",
             ),
             Text("Stockfish skill level:", size=25),
-            Slider(
-                min=1,
-                max=20,
-                divisions=19,
-                width=400,
-                label="{value}",
-                value=20,
-                thumb_color=colors.ACCENT_COLOR_3,
-                active_color=colors.ACCENT_COLOR_3,
-            ),
+            self.__skill_slider,
             Row(
                 [
                     Button(
@@ -200,23 +210,31 @@ class SettingsContainer(Column):
                     ),
                     Button(
                         text="Disconnect robot",
-                        icon=icons.REPLAY_OUTLINED,
+                        icon=icons.BLOCK_OUTLINED,
                         on_click=lambda _: self.robot.close(),
                     ),
                 ],
                 alignment=MainAxisAlignment.CENTER,
             ),
         ]
+        if self.__nickname_field.value is not None:
+            self.game.player_name = self.__nickname_field.value
+        if self.__skill_slider.value is not None:
+            self.game.skill_level = int(self.__skill_slider.value)
+
+    @staticmethod
+    def __control_changed(event: ControlEvent, target_object: object, attribute_name: str | int) -> None:
+        setattr(target_object, str(attribute_name), event.control.value)
 
 
 class KawaChessApp:
     def __init__(self, page: Page) -> None:
         self.__page: Page = page
         self.__robot: RobotConnection = RobotConnection("127.0.0.1/9105", self.__show_dialog)
-        self.__game_container: GameContainer = GameContainer(420, self.__show_dialog, self.__robot, 20)
+        self.__game_container: GameContainer = GameContainer(420, self.__show_dialog, self.__robot)
         self.__database_container: DatabaseContainer = DatabaseContainer()
         self.__logs_container: LogsContainer = LogsContainer()
-        self.__settings_container: SettingsContainer = SettingsContainer(self.__robot)
+        self.__settings_container: SettingsContainer = SettingsContainer(self.__robot, self.__game_container)
         self.__about_container: AboutContainer = AboutContainer()
         self.__maximize_button: IconButton = MaximizeButton(on_click=lambda _: self.__maximize())
         self.__minimize_button: IconButton = MinimizeButton(on_click=lambda _: self.__minimize())
