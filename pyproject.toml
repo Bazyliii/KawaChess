@@ -36,7 +36,7 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["ALL"]
-
+extend-select = ["ALL"]
 ignore = [
   "W191",
   "FURB101",
