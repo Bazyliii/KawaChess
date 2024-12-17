@@ -12,7 +12,10 @@ board_moves
 build
 *.pdf
 scripts/ArUco.py
+.ruff_cache
+.vscode
 scripts/__pycache__/*
 kawachess/__pycache__/*
+kawachess.egg-info
 temp
 tmp.py

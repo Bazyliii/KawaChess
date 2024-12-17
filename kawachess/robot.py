@@ -9,8 +9,9 @@ from time import sleep
 from typing import NamedTuple
 
 
-class RobotStatus(Enum):
-    """Robot status.
+class Status(Enum):
+    """
+    Robot status.
 
     ERROR: The robot is in an error state.
     MOTOR_POWERED: The robot is powered on.
@@ -36,9 +37,10 @@ class RobotStatus(Enum):
     STEP_ONCE = auto()
 
 
-@dataclass(frozen=True, slots=True)
-class RobotCommand:
-    """Robot commands.
+@dataclass(frozen=True)
+class Command:
+    """
+    Robot commands.
 
     RESET: Reset the robot.
     MOTOR_ON: Turn on the motor.
@@ -54,13 +56,15 @@ class RobotCommand:
     REPEAT_ONCE_ON: Turn on repeat once mode.
     STEP_ONCE_OFF: Turn off single step mode.
     STEP_ONCE_ON: Turn on single step mode.
+    POINT: Add point to robot memory.
+
     """
 
     RESET: tuple[str, int] = ("ERESET", 0)
     MOTOR_ON: tuple[str, int] = ("ZPOW ON", 0)
     MOTOR_OFF: tuple[str, int] = ("ZPOW OFF", 0)
     HOME: tuple[str, int] = ("DO HOME", 1)
-    MOVE_TO_POINT: tuple[str, int] = ("DO HMOVE", 1)
+    MOVE_TO_POINT: tuple[str, int] = ("DO LMOVE", 1)
     PICKUP: tuple[str, int] = ("DO LDEPART 80", 1)
     PUTDOWN: tuple[str, int] = ("DO LDEPART -80", 1)
     EXECUTE_PROG: tuple[str, int] = ("EXE", 2)
@@ -70,9 +74,10 @@ class RobotCommand:
     REPEAT_ONCE_ON: tuple[str, int] = ("REP_ONCE ON", 0)
     STEP_ONCE_OFF: tuple[str, int] = ("STP_ONCE OFF", 0)
     STEP_ONCE_ON: tuple[str, int] = ("STP_ONCE ON", 0)
+    ADD_POINT: tuple[str, int] = ("POINT", 3)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class TelnetFlag:
     IAC: bytes = bytes([255])
     DONT: bytes = bytes([254])
@@ -95,34 +100,77 @@ class TelnetFlag:
     NULL: bytes = bytes([0])
 
 
-class RobotConnection:
+class Cartesian(NamedTuple):
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+    o: float = 0.0
+    a: float = 0.0
+    t: float = 0.0
+
+
+class Point:
+    def __init__(self, name: str, point: Cartesian) -> None:
+        self.name: str = name
+        self.x: float = round(point.x, 3)
+        self.y: float = round(point.y, 3)
+        self.z: float = round(point.z, 3)
+        self.o: float = round(point.o, 3)
+        self.a: float = round(point.a, 3)
+        self.t: float = round(point.t, 3)
+
+    def shift(self, name: str, shift: Cartesian) -> "Point":
+        return Point(name, Cartesian(self.x + shift.x, self.y + shift.y, self.z + shift.z, self.o + shift.o, self.a + shift.a, self.t + shift.t))
+
+    def __str__(self) -> str:
+        return f"{self.x},{self.y},{self.z},{self.o},{self.a},{self.t}"
+
+
+class Connection:
     def __init__(self, host: str, show_dialog: Callable[[str], None]) -> None:
-        self._telnet_selector: type = SelectSelector
+        self.__telnet_selector: type = SelectSelector
         self.__dialog: Callable[[str], None] = show_dialog
-        self.host: str = host.split("/")[0]
-        self.port: int = int(host.split("/")[1])
-        self.raw_queue: bytes = b""
-        self.raw_queue_index: int = 0
-        self.cooked_queue: bytes = b""
-        self.end_of_file: bool = False
-        self.iac_sequence: bytes = b""
-        self.subnegotiation: bool = False
-        self.subnegotiation_data_queue: bytes = b""
-        self.socket: socket = socket()
-        self.logged_in: bool = False
+        self.__host: str = host.split("/")[0]
+        self.__port: int = int(host.split("/")[1])
+        self.__raw_queue: bytes = b""
+        self.__raw_queue_index: int = 0
+        self.__cooked_queue: bytes = b""
+        self.__end_of_file: bool = False
+        self.__iac_sequence: bytes = b""
+        self.__subnegotiation: bool = False
+        self.__subnegotiation_data_queue: bytes = b""
+        self.__socket: socket = socket()
+        self.__logged_in: bool = False
 
     def login(self, username: str = "as") -> None:
-        if self.logged_in:
+        if self.__logged_in:
             return
-        self.socket = create_connection((self.host, self.port))
+        self.__socket = create_connection((self.__host, self.__port))
         self.read_until_match("login:")
         self.write(username)
         self.read_until_match(">")
-        self.logged_in = True
+        self.__logged_in = True
         self.initialize()
         self.__dialog("Connected and logged in!")
 
-    def status(self) -> dict[RobotStatus, bool]:
+    def initialize(self) -> None:
+        if not self.__logged_in:
+            return
+        status: dict[Status, bool] = self.status()
+        if status[Status.ERROR]:
+            self.send(Command.RESET)
+        if status[Status.CONTINUOUS_PATH]:
+            self.send(Command.CONTINUOUS_PATH_OFF)
+        if status[Status.REPEAT_ONCE]:
+            self.send(Command.REPEAT_ONCE_ON)
+        if status[Status.STEP_ONCE]:
+            self.send(Command.STEP_ONCE_OFF)
+        if not status[Status.MOTOR_POWERED]:
+            self.send(Command.MOTOR_ON)
+        if status[Status.TEACH_MODE] or status[Status.TEACH_LOCK] or status[Status.HOLD] or not status[Status.REPEAT_MODE]:
+            self.__dialog("Robot is in an invalid state!")
+
+    def status(self) -> dict[Status, bool]:
         self.write("SWITCH")
         message: str = self.read_until_match("Press SPACE key to continue").split("SWITCH\r")[1]
         split_pattern: Pattern[str] = regex_compile(r" ON| OFF")
@@ -132,27 +180,27 @@ class RobotConnection:
         self.write("\n")
         self.clear_queue()
         return {
-            RobotStatus.BUSY: status_data["CS"],
-            RobotStatus.ERROR: status_data["ERROR"],
-            RobotStatus.MOTOR_POWERED: status_data["POWER"],
-            RobotStatus.REPEAT_MODE: status_data["REPEAT"],
-            RobotStatus.TEACH_MODE: not status_data["REPEAT"],
-            RobotStatus.TEACH_LOCK: status_data["TEACH_LOCK"],
-            RobotStatus.HOLD: not status_data["RUN"],
-            RobotStatus.CONTINUOUS_PATH: status_data["CP"],
-            RobotStatus.REPEAT_ONCE: status_data["REP_ONCE"],
-            RobotStatus.STEP_ONCE: status_data["STP_ONCE"],
+            Status.BUSY: status_data["CS"],
+            Status.ERROR: status_data["ERROR"],
+            Status.MOTOR_POWERED: status_data["POWER"],
+            Status.REPEAT_MODE: status_data["REPEAT"],
+            Status.TEACH_MODE: not status_data["REPEAT"],
+            Status.TEACH_LOCK: status_data["TEACH_LOCK"],
+            Status.HOLD: not status_data["RUN"],
+            Status.CONTINUOUS_PATH: status_data["CP"],
+            Status.REPEAT_ONCE: status_data["REP_ONCE"],
+            Status.STEP_ONCE: status_data["STP_ONCE"],
         }
 
-    def send(self, command: tuple[str, int], arg: "RobotCartesianPoint | str | None" = None) -> None:
-        if not self.logged_in:
+    def send(self, command: tuple[str, int], arg: Point | str | None = None) -> None:
+        if not self.__logged_in:
             return
         match command[1]:
             case 0:
                 self.write(command[0])
                 self.read_until_match(">")
             case 1:
-                if type(arg) is RobotCartesianPoint:
+                if type(arg) is Point:
                     self.write(command[0] + f" {arg.name}")
                 else:
                     self.write(command[0])
@@ -161,40 +209,46 @@ class RobotConnection:
             case 2:
                 self.write(command[0] + f" {arg}")
                 self.read_until_match("Program completed.")
+            case 3:
+                if type(arg) is Point:
+                    self.write(f"POINT {arg.name}")
+                    self.write(str(arg))
+                    self.write("\n")
+                    self.clear_queue()
         sleep(0.1)
 
     def close(self) -> None:
-        self.raw_queue: bytes = b""
-        self.raw_queue_index: int = 0
-        self.cooked_queue: bytes = b""
-        self.end_of_file: bool = False
-        self.iac_sequence: bytes = b""
-        self.subnegotiation: bool = False
-        self.subnegotiation_data_queue: bytes = b""
-        if self.logged_in:
+        self.__raw_queue: bytes = b""
+        self.__raw_queue_index: int = 0
+        self.__cooked_queue: bytes = b""
+        self.__end_of_file: bool = False
+        self.__iac_sequence: bytes = b""
+        self.__subnegotiation: bool = False
+        self.__subnegotiation_data_queue: bytes = b""
+        if self.__logged_in:
             self.write("signal -2011")
             self.__dialog("Logged out and disconnected!")
-            self.socket.close()
-            self.logged_in = False
+            self.__socket.close()
+            self.__logged_in = False
 
     def read_until_match(self, match: str) -> str:
         match_encoded: bytes = match.encode("ascii")
         self.__raw_queue_process()
-        with self._telnet_selector() as selector:
+        with self.__telnet_selector() as selector:
             selector.register(self.__socket_descriptor(), EVENT_READ)
-            while not self.end_of_file and selector.select():
+            while not self.__end_of_file and selector.select():
                 self.__raw_queue_fill()
                 self.__raw_queue_process()
-                i: int = self.cooked_queue.find(match_encoded)
+                i: int = self.__cooked_queue.find(match_encoded)
                 if i >= 0:
                     i += len(match_encoded)
-                    buffer: bytes = self.cooked_queue[:i]
-                    self.cooked_queue = self.cooked_queue[i:]
+                    buffer: bytes = self.__cooked_queue[:i]
+                    self.__cooked_queue = self.__cooked_queue[i:]
                     return buffer.decode("ascii")
         raise EOFError
 
     def write_program(self, program: str, name: str) -> None:
-        if not self.logged_in:
+        if not self.__logged_in:
             return
         self.clear_queue()
         self.write("KILL")
@@ -207,135 +261,100 @@ class RobotConnection:
         self.write("\n")
         sleep(0.1)
 
-    def initialize(self) -> None:
-        if not self.logged_in:
-            return
-        status: dict[RobotStatus, bool] = self.status()
-        if status[RobotStatus.ERROR]:
-            self.send(RobotCommand.RESET)
-        if status[RobotStatus.CONTINUOUS_PATH]:
-            self.send(RobotCommand.CONTINUOUS_PATH_OFF)
-        if status[RobotStatus.REPEAT_ONCE]:
-            self.send(RobotCommand.REPEAT_ONCE_ON)
-        if status[RobotStatus.STEP_ONCE]:
-            self.send(RobotCommand.STEP_ONCE_OFF)
-        if not status[RobotStatus.MOTOR_POWERED]:
-            self.send(RobotCommand.MOTOR_ON)
-        if status[RobotStatus.TEACH_MODE] or status[RobotStatus.TEACH_LOCK] or status[RobotStatus.HOLD] or not status[RobotStatus.REPEAT_MODE]:
-            self.__dialog("Robot is in an invalid state!")
-
     def write(self, buffer: str) -> None:
         buffer_encoded: bytes = buffer.encode("ascii") + b"\r\n"
         if TelnetFlag.IAC in buffer_encoded:
             buffer_encoded = buffer_encoded.replace(TelnetFlag.IAC, TelnetFlag.IAC + TelnetFlag.IAC)
-        self.socket.sendall(buffer_encoded)
-
-    def __raw_queue_process(self) -> None:
-        buffer: list[bytes] = [b"", b""]
-        while self.raw_queue:
-            char: bytes = self.__raw_queue_get_char()
-            if not self.iac_sequence:
-                if char != TelnetFlag.IAC and char not in {TelnetFlag.NULL, b"\021"}:
-                    buffer[self.subnegotiation] += char
-                    continue
-                self.iac_sequence += char
-                continue
-            if len(self.iac_sequence) == 1:
-                if char in {TelnetFlag.DO, TelnetFlag.DONT, TelnetFlag.WILL, TelnetFlag.WONT}:
-                    self.iac_sequence += char
-                    continue
-                self.iac_sequence = b""
-                match char:
-                    case TelnetFlag.IAC:
-                        buffer[self.subnegotiation] += char
-                    case TelnetFlag.SB:
-                        self.subnegotiation = True
-                        self.subnegotiation_data_queue = b""
-                    case TelnetFlag.SE:
-                        self.subnegotiation = False
-                        self.subnegotiation_data_queue += buffer[1]
-                        buffer[1] = b""
-                self.__negotiate(char, TelnetFlag.NULL)
-                continue
-            command: bytes = self.iac_sequence[1:2]
-            self.iac_sequence = b""
-            if command in {TelnetFlag.DO, TelnetFlag.DONT} or command in {TelnetFlag.WILL, TelnetFlag.WONT}:
-                self.__negotiate(command, char)
-        self.cooked_queue += buffer[0]
-        self.subnegotiation_data_queue += buffer[1]
-
-    def __raw_queue_get_char(self) -> bytes:
-        if not self.raw_queue:
-            self.__raw_queue_fill()
-            if self.end_of_file:
-                raise EOFError
-        char: bytes = self.raw_queue[self.raw_queue_index : self.raw_queue_index + 1]
-        self.raw_queue_index += 1
-        if self.raw_queue_index >= len(self.raw_queue):
-            self.raw_queue = b""
-            self.raw_queue_index = 0
-        return char
-
-    def __raw_queue_fill(self) -> None:
-        if self.raw_queue_index >= len(self.raw_queue):
-            self.raw_queue = b""
-            self.raw_queue_index = 0
-        buffer: bytes = self.socket.recv(50)
-        self.end_of_file = not buffer
-        self.raw_queue += buffer
-
-    def __negotiate(self, command: bytes, option: bytes) -> None:
-        match (command, option):
-            case (TelnetFlag.WILL, TelnetFlag.ECHO):
-                self.socket.sendall(TelnetFlag.IAC + TelnetFlag.DO + option)
-            case (TelnetFlag.DO, TelnetFlag.TTYPE):
-                self.socket.sendall(TelnetFlag.IAC + TelnetFlag.WILL + TelnetFlag.TTYPE)
-            case (TelnetFlag.SB, _):
-                self.socket.sendall(
-                    TelnetFlag.IAC + TelnetFlag.SB + TelnetFlag.TTYPE + TelnetFlag.NULL + b"VT100" + TelnetFlag.NULL + TelnetFlag.IAC + TelnetFlag.SE,
-                )
-
-    def __socket_descriptor(self) -> int:
-        return self.socket.fileno()
+        self.__socket.sendall(buffer_encoded)
 
     def clear_queue(self) -> None:
         self.__raw_queue_fill()
         self.__raw_queue_process()
-        self.raw_queue = b""
-        self.cooked_queue = b""
-        self.raw_queue_index = 0
+        self.__raw_queue = b""
+        self.__cooked_queue = b""
+        self.__raw_queue_index = 0
+
+    def __raw_queue_process(self) -> None:
+        buffer: list[bytes] = [b"", b""]
+        while self.__raw_queue:
+            char: bytes = self.__raw_queue_get_char()
+            if not self.__iac_sequence:
+                if char != TelnetFlag.IAC and char not in {TelnetFlag.NULL, b"\021"}:
+                    buffer[self.__subnegotiation] += char
+                    continue
+                self.__iac_sequence += char
+                continue
+            if len(self.__iac_sequence) == 1:
+                if char in {TelnetFlag.DO, TelnetFlag.DONT, TelnetFlag.WILL, TelnetFlag.WONT}:
+                    self.__iac_sequence += char
+                    continue
+                self.__iac_sequence = b""
+                match char:
+                    case TelnetFlag.IAC:
+                        buffer[self.__subnegotiation] += char
+                    case TelnetFlag.SB:
+                        self.__subnegotiation = True
+                        self.__subnegotiation_data_queue = b""
+                    case TelnetFlag.SE:
+                        self.__subnegotiation = False
+                        self.__subnegotiation_data_queue += buffer[1]
+                        buffer[1] = b""
+                self.__negotiate(char, TelnetFlag.NULL)
+                continue
+            command: bytes = self.__iac_sequence[1:2]
+            self.__iac_sequence = b""
+            if command in {TelnetFlag.DO, TelnetFlag.DONT} or command in {TelnetFlag.WILL, TelnetFlag.WONT}:
+                self.__negotiate(command, char)
+        self.__cooked_queue += buffer[0]
+        self.__subnegotiation_data_queue += buffer[1]
+
+    def __raw_queue_get_char(self) -> bytes:
+        if not self.__raw_queue:
+            self.__raw_queue_fill()
+            if self.__end_of_file:
+                raise EOFError
+        char: bytes = self.__raw_queue[self.__raw_queue_index : self.__raw_queue_index + 1]
+        self.__raw_queue_index += 1
+        if self.__raw_queue_index >= len(self.__raw_queue):
+            self.__raw_queue = b""
+            self.__raw_queue_index = 0
+        return char
+
+    def __raw_queue_fill(self) -> None:
+        if self.__raw_queue_index >= len(self.__raw_queue):
+            self.__raw_queue = b""
+            self.__raw_queue_index = 0
+        buffer: bytes = self.__socket.recv(50)
+        self.__end_of_file = not buffer
+        self.__raw_queue += buffer
+
+    def __negotiate(self, command: bytes, option: bytes) -> None:
+        match (command, option):
+            case (TelnetFlag.WILL, TelnetFlag.ECHO):
+                self.__socket.sendall(TelnetFlag.IAC + TelnetFlag.DO + option)
+            case (TelnetFlag.DO, TelnetFlag.TTYPE):
+                self.__socket.sendall(TelnetFlag.IAC + TelnetFlag.WILL + TelnetFlag.TTYPE)
+            case (TelnetFlag.SB, _):
+                self.__socket.sendall(
+                    TelnetFlag.IAC + TelnetFlag.SB + TelnetFlag.TTYPE + TelnetFlag.NULL + b"VT100" + TelnetFlag.NULL + TelnetFlag.IAC + TelnetFlag.SE,
+                )
+
+    def __socket_descriptor(self) -> int:
+        return self.__socket.fileno()
 
 
-class Cartesian(NamedTuple):
-    x: float = 0.0
-    y: float = 0.0
-    z: float = 0.0
-    o: float = 0.0
-    a: float = 0.0
-    t: float = 0.0
+if __name__ == "__main__":
+    from random import uniform
 
+    def dialog(msg: str) -> None:
+        print(msg)
 
-class RobotCartesianPoint:
-    def __init__(self, telnet: RobotConnection, name: str, point: Cartesian) -> None:
-        self.name: str = name
-        self.telnet: RobotConnection = telnet
-        self.x: float = point.x
-        self.y: float = point.y
-        self.z: float = point.z
-        self.o: float = point.o
-        self.a: float = point.a
-        self.t: float = point.t
-        self.__push_point_to_robot()
+    robot = Connection("127.0.0.1/9105", dialog)
+    robot.login()
 
-    def shift(self, name: str, shift: Cartesian) -> "RobotCartesianPoint":
-        return RobotCartesianPoint(
-            self.telnet,
-            name,
-            Cartesian(self.x + shift.x, self.y + shift.y, self.z + shift.z, self.o + shift.o, self.a + shift.a, self.t + shift.t),
-        )
-
-    def __push_point_to_robot(self) -> None:
-        self.telnet.write(f"POINT {self.name}")
-        self.telnet.write(f"{self.x},{self.y},{self.z},{self.o},{self.a},{self.t}")
-        self.telnet.write("\n")
-        self.telnet.clear_queue()
+    base = Point("A", Cartesian(91.362, 554.329, -193.894, -137.238, 179.217, -5.03))
+    b: Point = base.shift("B", Cartesian(x=20))
+    c: Point = base.shift("C", Cartesian(x=-20, z=round(uniform(-100, 100), 0)))
+    robot.send(Command.ADD_POINT, b)
+    robot.send(Command.ADD_POINT, c)
+    robot.close()
