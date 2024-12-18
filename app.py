@@ -39,6 +39,7 @@ from kawachess.components import Button, CloseButton, MaximizeButton, MinimizeBu
 # ROBOT_HOST: Final[str] = "192.168.1.155/23"
 ROBOT_HOST: Final[str] = "127.0.0.1/9105"
 
+
 class LogsContainer(Column):
     def __init__(self) -> None:
         super().__init__()

@@ -43,7 +43,6 @@ class MaximizeButton(CloseButton):
         super().__init__()
         self.icon = icons.CHECK_BOX_OUTLINE_BLANK
         self.on_click = on_click
-        self.hover_color = GREEN
         self.selected = False
         self.selected_icon = icons.COPY_OUTLINED
         self.hover_color = BLUE

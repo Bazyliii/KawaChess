@@ -61,6 +61,7 @@ class Command:
     """
 
     RESET: tuple[str, int] = ("ERESET", 0)
+    ABORT: tuple[str, int] = ("ABORT", 0)
     MOTOR_ON: tuple[str, int] = ("ZPOW ON", 0)
     MOTOR_OFF: tuple[str, int] = ("ZPOW OFF", 0)
     HOME: tuple[str, int] = ("DO HOME", 1)
@@ -119,11 +120,11 @@ class Point:
         self.a: float = round(point.a, 3)
         self.t: float = round(point.t, 3)
 
-    def shift(self, name: str, shift: Cartesian) -> "Point":
-        return Point(name, Cartesian(self.x + shift.x, self.y + shift.y, self.z + shift.z, self.o + shift.o, self.a + shift.a, self.t + shift.t))
-
     def __str__(self) -> str:
         return f"{self.x},{self.y},{self.z},{self.o},{self.a},{self.t}"
+
+    def shift(self, name: str, shift: Cartesian) -> "Point":
+        return Point(name, Cartesian(self.x + shift.x, self.y + shift.y, self.z + shift.z, self.o + shift.o, self.a + shift.a, self.t + shift.t))
 
 
 class Connection:
@@ -146,9 +147,9 @@ class Connection:
         if self.__logged_in:
             return
         self.__socket = create_connection((self.__host, self.__port))
-        self.read_until_match("login:")
+        self.read_until_match(["login:"])
         self.write(username)
-        self.read_until_match(">")
+        self.read_until_match([">"])
         self.__logged_in = True
         self.initialize()
         self.__dialog("Connected and logged in!")
@@ -172,7 +173,7 @@ class Connection:
 
     def status(self) -> dict[Status, bool]:
         self.write("SWITCH")
-        message: str = self.read_until_match("Press SPACE key to continue").split("SWITCH\r")[1]
+        message: str = self.read_until_match(["Press SPACE key to continue"]).split("SWITCH\r")[1]
         split_pattern: Pattern[str] = regex_compile(r" ON| OFF")
         replace_pattern: Pattern[str] = regex_compile(r"[ \n*\r]")
         raw_data: list[str] = [sub(replace_pattern, "", s) for s in split(pattern=split_pattern, string=message)][:-1]
@@ -198,23 +199,20 @@ class Connection:
         match command[1]:
             case 0:
                 self.write(command[0])
-                self.read_until_match(">")
+                self.read_until_match([">", "Program aborted."])
             case 1:
                 if type(arg) is Point:
                     self.write(command[0] + f" {arg.name}")
                 else:
                     self.write(command[0])
-                self.read_until_match("DO motion completed.")
+                self.read_until_match(["DO motion completed."])
                 sleep(0.3)
             case 2:
                 self.write(command[0] + f" {arg}")
-                self.read_until_match("Program completed.")
+                self.read_until_match(["Program completed.", "Program aborted."])
             case 3:
                 if type(arg) is Point:
-                    self.write(f"POINT {arg.name}")
-                    self.write(str(arg))
-                    self.write("\n")
-                    self.clear_queue()
+                    self.write(f"POINT {arg.name} = TRANS({arg!s})\n")
         sleep(0.1)
 
     def close(self) -> None:
@@ -231,20 +229,37 @@ class Connection:
             self.__socket.close()
             self.__logged_in = False
 
-    def read_until_match(self, match: str) -> str:
-        match_encoded: bytes = match.encode("ascii")
+    # def read_until_match(self, match: str) -> str:
+    #     match_encoded: bytes = match.encode("ascii")
+    #     self.__raw_queue_process()
+    #     with self.__telnet_selector() as selector:
+    #         selector.register(self.__socket_descriptor(), EVENT_READ)
+    #         while not self.__end_of_file and selector.select():
+    #             self.__raw_queue_fill()
+    #             self.__raw_queue_process()
+    #             i: int = self.__cooked_queue.find(match_encoded)
+    #             if i >= 0:
+    #                 i += len(match_encoded)
+    #                 buffer: bytes = self.__cooked_queue[:i]
+    #                 self.__cooked_queue = self.__cooked_queue[i:]
+    #                 return buffer.decode("ascii")
+    #     raise EOFError
+
+    def read_until_match(self, matches: list[str]) -> str:
+        matches_encoded: list[bytes] = [m.encode("ascii") for m in matches]
         self.__raw_queue_process()
         with self.__telnet_selector() as selector:
             selector.register(self.__socket_descriptor(), EVENT_READ)
             while not self.__end_of_file and selector.select():
                 self.__raw_queue_fill()
                 self.__raw_queue_process()
-                i: int = self.__cooked_queue.find(match_encoded)
-                if i >= 0:
-                    i += len(match_encoded)
-                    buffer: bytes = self.__cooked_queue[:i]
-                    self.__cooked_queue = self.__cooked_queue[i:]
-                    return buffer.decode("ascii")
+                for match_encoded in matches_encoded:
+                    i: int = self.__cooked_queue.find(match_encoded)
+                    if i >= 0:
+                        i += len(match_encoded)
+                        buffer: bytes = self.__cooked_queue[:i]
+                        self.__cooked_queue = self.__cooked_queue[i:]
+                        return buffer.decode("ascii")
         raise EOFError
 
     def write_program(self, program: str, name: str) -> None:
@@ -259,7 +274,7 @@ class Connection:
             self.write(line)
         self.write("E")
         self.write("\n")
-        sleep(0.1)
+        self.read_until_match([">"])
 
     def write(self, buffer: str) -> None:
         buffer_encoded: bytes = buffer.encode("ascii") + b"\r\n"
@@ -344,17 +359,17 @@ class Connection:
 
 
 if __name__ == "__main__":
-    from random import uniform
-
     def dialog(msg: str) -> None:
         print(msg)
 
     robot = Connection("127.0.0.1/9105", dialog)
     robot.login()
-
-    base = Point("A", Cartesian(91.362, 554.329, -193.894, -137.238, 179.217, -5.03))
-    b: Point = base.shift("B", Cartesian(x=20))
-    c: Point = base.shift("C", Cartesian(x=-20, z=round(uniform(-100, 100), 0)))
-    robot.send(Command.ADD_POINT, b)
-    robot.send(Command.ADD_POINT, c)
+    program: str = """
+    LMOVE A1
+    LDEPART 80
+    LMOVE A2
+    LDEPART 80
+    """
+    robot.write_program(program, "test")
+    robot.send(Command.EXECUTE_PROG, "test")
     robot.close()
