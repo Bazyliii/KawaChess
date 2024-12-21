@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
+from ipaddress import IPv4Address
+from pathlib import Path
 from re import Pattern, findall, split, sub
 from re import compile as regex_compile
 from selectors import EVENT_READ, SelectSelector
@@ -37,68 +39,62 @@ class Status(Enum):
     STEP_ONCE = auto()
 
 
-@dataclass(frozen=True)
-class Command:
-    """
-    Robot commands.
+class CommandType(Enum):
+    CONFIG = auto()
+    MOVEMENT = auto()
 
-    RESET: Reset the robot.
-    MOTOR_ON: Turn on the motor.
-    MOTOR_OFF: Turn off the motor.
-    HOME: Move the robot to the home position.
-    MOVE_TO_POINT: Move the robot to a point.
-    PICKUP: Move the robot to the pickup position.
-    PUTDOWN: Move the robot to the putdown position.
-    EXECUTE_PROG: Execute a program.
-    CONTINUOUS_PATH_ON: Turn on continuous path mode.
-    CONTINUOUS_PATH_OFF: Turn off continuous path mode.
-    REPEAT_ONCE_OFF: Turn off repeat once mode.
-    REPEAT_ONCE_ON: Turn on repeat once mode.
-    STEP_ONCE_OFF: Turn off single step mode.
-    STEP_ONCE_ON: Turn on single step mode.
-    POINT: Add point to robot memory.
 
-    """
+class Command(Enum):
+    RESET = ("ERESET", CommandType.CONFIG)
+    ABORT = ("ABORT", CommandType.CONFIG)
+    MOTOR_ON = ("ZPOW ON", CommandType.CONFIG)
+    MOTOR_OFF = ("ZPOW OFF", CommandType.CONFIG)
+    CONTINUOUS_PATH_ON = ("CP ON", CommandType.CONFIG)
+    CONTINUOUS_PATH_OFF = ("CP OFF", CommandType.CONFIG)
+    REPEAT_ONCE_OFF = ("REP_ONCE OFF", CommandType.CONFIG)
+    REPEAT_ONCE_ON = ("REP_ONCE ON", CommandType.CONFIG)
+    STEP_ONCE_OFF = ("STP_ONCE OFF", CommandType.CONFIG)
+    STEP_ONCE_ON = ("STP_ONCE ON", CommandType.CONFIG)
+    HOME = ("DO HOME", CommandType.MOVEMENT)
+    LINEAR_MOVE = ("DO LMOVE", CommandType.MOVEMENT)
+    JOINT_MOVE = ("DO JMOVE", CommandType.MOVEMENT)
+    HYBRID_MOVE = ("DO HMOVE", CommandType.MOVEMENT)
+    PICKUP = ("DO LDEPART 80", CommandType.MOVEMENT)
+    PUTDOWN = ("DO LDEPART -80", CommandType.MOVEMENT)
 
-    RESET: tuple[str, int] = ("ERESET", 0)
-    ABORT: tuple[str, int] = ("ABORT", 0)
-    MOTOR_ON: tuple[str, int] = ("ZPOW ON", 0)
-    MOTOR_OFF: tuple[str, int] = ("ZPOW OFF", 0)
-    HOME: tuple[str, int] = ("DO HOME", 1)
-    MOVE_TO_POINT: tuple[str, int] = ("DO LMOVE", 1)
-    PICKUP: tuple[str, int] = ("DO LDEPART 80", 1)
-    PUTDOWN: tuple[str, int] = ("DO LDEPART -80", 1)
-    EXECUTE_PROG: tuple[str, int] = ("EXE", 2)
-    CONTINUOUS_PATH_ON: tuple[str, int] = ("CP ON", 0)
-    CONTINUOUS_PATH_OFF: tuple[str, int] = ("CP OFF", 0)
-    REPEAT_ONCE_OFF: tuple[str, int] = ("REP_ONCE OFF", 0)
-    REPEAT_ONCE_ON: tuple[str, int] = ("REP_ONCE ON", 0)
-    STEP_ONCE_OFF: tuple[str, int] = ("STP_ONCE OFF", 0)
-    STEP_ONCE_ON: tuple[str, int] = ("STP_ONCE ON", 0)
-    ADD_POINT: tuple[str, int] = ("POINT", 3)
+    @property
+    def val(self) -> str:
+        return self.value[0]
+
+    @property
+    def type(self) -> CommandType:
+        return CommandType(self.value[1])
 
 
 @dataclass(frozen=True)
-class TelnetFlag:
-    IAC: bytes = bytes([255])
-    DONT: bytes = bytes([254])
-    DO: bytes = bytes([253])
-    WONT: bytes = bytes([252])
-    WILL: bytes = bytes([251])
-    SB: bytes = bytes([250])
-    GA: bytes = bytes([249])
-    EL: bytes = bytes([248])
-    EC: bytes = bytes([247])
-    AYT: bytes = bytes([246])
-    AO: bytes = bytes([245])
-    IP: bytes = bytes([244])
-    BRK: bytes = bytes([243])
-    DM: bytes = bytes([242])
-    NOP: bytes = bytes([241])
-    SE: bytes = bytes([240])
-    TTYPE: bytes = bytes([24])
-    ECHO: bytes = bytes([1])
-    NULL: bytes = bytes([0])
+class Flag:
+    IAC: bytes = bytes([255])  # Interpret As Command
+    DONT: bytes = bytes([254])  # Don't
+    DO: bytes = bytes([253])  # Do
+    WONT: bytes = bytes([252])  # Won't
+    WILL: bytes = bytes([251])  # Will
+    SB: bytes = bytes([250])  # Subnegotiation
+    GA: bytes = bytes([249])  # Go Ahead
+    EL: bytes = bytes([248])  # Erase Line
+    EC: bytes = bytes([247])  # Erase Character
+    AYT: bytes = bytes([246])  # Are You There
+    AO: bytes = bytes([245])  # Abort Output
+    IP: bytes = bytes([244])  # Interrupt Process
+    BRK: bytes = bytes([243])  # Break
+    DM: bytes = bytes([242])  # Data Mark
+    NOP: bytes = bytes([241])  # No Operation
+    SE: bytes = bytes([240])  # End of Subnegotiation
+    SUB: bytes = bytes([26])  # Substitute
+    TTYPE: bytes = bytes([24])  # Terminal Type
+    ETB: bytes = bytes([23])  # End of Transmission Block
+    STX: bytes = bytes([2])  # Start of Transmission Block
+    ECHO: bytes = bytes([1])  # Echo
+    NULL: bytes = bytes([0])  # Null
 
 
 class Cartesian(NamedTuple):
@@ -113,26 +109,41 @@ class Cartesian(NamedTuple):
 class Point:
     def __init__(self, name: str, point: Cartesian) -> None:
         self.name: str = name
-        self.x: float = round(point.x, 3)
-        self.y: float = round(point.y, 3)
-        self.z: float = round(point.z, 3)
-        self.o: float = round(point.o, 3)
-        self.a: float = round(point.a, 3)
-        self.t: float = round(point.t, 3)
+        self.__x: float = round(point.x, 3)
+        self.__y: float = round(point.y, 3)
+        self.__z: float = round(point.z, 3)
+        self.__o: float = round(point.o, 3)
+        self.__a: float = round(point.a, 3)
+        self.__t: float = round(point.t, 3)
+        self.in_memory: bool = False
 
     def __str__(self) -> str:
-        return f"{self.x},{self.y},{self.z},{self.o},{self.a},{self.t}"
+        return f"{self.__x},{self.__y},{self.__z},{self.__o},{self.__a},{self.__t}"
 
     def shift(self, name: str, shift: Cartesian) -> "Point":
-        return Point(name, Cartesian(self.x + shift.x, self.y + shift.y, self.z + shift.z, self.o + shift.o, self.a + shift.a, self.t + shift.t))
+        return Point(name, Cartesian(self.__x + shift.x, self.__y + shift.y, self.__z + shift.z, self.__o + shift.o, self.__a + shift.a, self.__t + shift.t))
+
+
+class Program:
+    def __init__(self, program_path: Path) -> None:
+        self.file_name: str = ""
+        self.split: list[bytes] = []
+        if program_path.suffix != ".as":
+            raise ValueError(program_path)
+        with program_path.open(mode="rb") as program:
+            self.file_name = program.name.split("\\")[-1]
+            program_data: bytes = program.read().replace(b"\r", b"").replace(b"\t", b"")
+        self.split = [program_data[i : i + 492] for i in range(0, len(program_data), 492)]
+        self.names: list[str] = findall(r"\.PROGRAM\s+([^\s]+)", program_data.decode("ascii"))
+        self.in_memory: bool = False
 
 
 class Connection:
-    def __init__(self, host: str, show_dialog: Callable[[str], None]) -> None:
+    def __init__(self, ip: IPv4Address, port: int, show_dialog: Callable[[str], None]) -> None:
         self.__telnet_selector: type = SelectSelector
         self.__dialog: Callable[[str], None] = show_dialog
-        self.__host: str = host.split("/")[0]
-        self.__port: int = int(host.split("/")[1])
+        self.__ip: str = ip.exploded
+        self.__port: int = port
         self.__raw_queue: bytes = b""
         self.__raw_queue_index: int = 0
         self.__cooked_queue: bytes = b""
@@ -146,30 +157,14 @@ class Connection:
     def login(self, username: str = "as") -> None:
         if self.__logged_in:
             return
-        self.__socket = create_connection((self.__host, self.__port))
-        self.read_until_match(["login:"])
+        self.__socket = create_connection((self.__ip, self.__port))
+        self.read_until_match("login:")
         self.write(username)
-        self.read_until_match([">"])
+        self.read_until_match(">")
         self.__logged_in = True
-        self.initialize()
+        self.__initialize()
         self.__dialog("Connected and logged in!")
-
-    def initialize(self) -> None:
-        if not self.__logged_in:
-            return
-        status: dict[Status, bool] = self.status()
-        if status[Status.ERROR]:
-            self.send(Command.RESET)
-        if status[Status.CONTINUOUS_PATH]:
-            self.send(Command.CONTINUOUS_PATH_OFF)
-        if status[Status.REPEAT_ONCE]:
-            self.send(Command.REPEAT_ONCE_ON)
-        if status[Status.STEP_ONCE]:
-            self.send(Command.STEP_ONCE_OFF)
-        if not status[Status.MOTOR_POWERED]:
-            self.send(Command.MOTOR_ON)
-        if status[Status.TEACH_MODE] or status[Status.TEACH_LOCK] or status[Status.HOLD] or not status[Status.REPEAT_MODE]:
-            self.__dialog("Robot is in an invalid state!")
+        self.__clear_queue()
 
     def status(self) -> dict[Status, bool]:
         self.write("SWITCH")
@@ -179,7 +174,7 @@ class Connection:
         raw_data: list[str] = [sub(replace_pattern, "", s) for s in split(pattern=split_pattern, string=message)][:-1]
         status_data: dict[str, bool] = {key: value == " ON" for key, value in zip(raw_data, findall(split_pattern, string=message), strict=True)}
         self.write("\n")
-        self.clear_queue()
+        self.__clear_queue()
         return {
             Status.BUSY: status_data["CS"],
             Status.ERROR: status_data["ERROR"],
@@ -193,26 +188,22 @@ class Connection:
             Status.STEP_ONCE: status_data["STP_ONCE"],
         }
 
-    def send(self, command: tuple[str, int], arg: Point | str | None = None) -> None:
+    def send(self, command: Command, arg: Point | None = None) -> None:
         if not self.__logged_in:
             return
-        match command[1]:
-            case 0:
-                self.write(command[0])
+        match command.type:
+            case CommandType.CONFIG:
+                self.write(command.val)
                 self.read_until_match([">", "Program aborted."])
-            case 1:
-                if type(arg) is Point:
-                    self.write(command[0] + f" {arg.name}")
-                else:
-                    self.write(command[0])
-                self.read_until_match(["DO motion completed."])
+            case CommandType.MOVEMENT:
+                if arg is None:
+                    self.write(f"{command.val}")
+                elif type(arg) is Point:
+                    if not arg.in_memory:
+                        self.add_translation_point(arg)
+                    self.write(f"{command.val} {arg.name}")
+                self.read_until_match(["DO motion completed.", "suddenly changed.", "Destination is out of motion range."])
                 sleep(0.3)
-            case 2:
-                self.write(command[0] + f" {arg}")
-                self.read_until_match(["Program completed.", "Program aborted."])
-            case 3:
-                if type(arg) is Point:
-                    self.write(f"POINT {arg.name} = TRANS({arg!s})\n")
         sleep(0.1)
 
     def close(self) -> None:
@@ -229,24 +220,12 @@ class Connection:
             self.__socket.close()
             self.__logged_in = False
 
-    # def read_until_match(self, match: str) -> str:
-    #     match_encoded: bytes = match.encode("ascii")
-    #     self.__raw_queue_process()
-    #     with self.__telnet_selector() as selector:
-    #         selector.register(self.__socket_descriptor(), EVENT_READ)
-    #         while not self.__end_of_file and selector.select():
-    #             self.__raw_queue_fill()
-    #             self.__raw_queue_process()
-    #             i: int = self.__cooked_queue.find(match_encoded)
-    #             if i >= 0:
-    #                 i += len(match_encoded)
-    #                 buffer: bytes = self.__cooked_queue[:i]
-    #                 self.__cooked_queue = self.__cooked_queue[i:]
-    #                 return buffer.decode("ascii")
-    #     raise EOFError
-
-    def read_until_match(self, matches: list[str]) -> str:
-        matches_encoded: list[bytes] = [m.encode("ascii") for m in matches]
+    def read_until_match(self, matches: list[bytes | str] | bytes | str) -> str:
+        matches_encoded: list[bytes] = []
+        if isinstance(matches, list):
+            matches_encoded = [match.encode("ascii") if isinstance(match, str) else match for match in matches]
+        else:
+            matches_encoded = [matches.encode("ascii") if isinstance(matches, str) else matches]
         self.__raw_queue_process()
         with self.__telnet_selector() as selector:
             selector.register(self.__socket_descriptor(), EVENT_READ)
@@ -262,27 +241,43 @@ class Connection:
                         return buffer.decode("ascii")
         raise EOFError
 
-    def write_program(self, program: str, name: str) -> None:
-        if not self.__logged_in:
+    def write(self, buffer: str | bytes, end: bytes = b"\r\n") -> None:
+        buffer_encoded: bytes = (bytes(buffer) if isinstance(buffer, bytes | bytearray | memoryview) else buffer.encode("ascii")).replace(
+            Flag.IAC,
+            Flag.IAC + Flag.IAC,
+        )
+        self.__socket.sendall(buffer_encoded + end)
+
+    def load_as_program(self, program: Program) -> None:
+        if program.in_memory:
             return
-        self.clear_queue()
-        self.write("KILL")
-        self.write("1")
-        self.write("\n")
-        self.write(f"EDIT {name}, 1")
-        for line in program.splitlines():
-            self.write(line)
-        self.write("E")
-        self.write("\n")
-        self.read_until_match([">"])
+        self.write("KILL\n1\n")
+        self.write(f"LOAD {program.file_name}")
+        self.read_until_match(".as")
+        self.write(Flag.STX + b"A    0" + Flag.ETB)
+        for chunk in program.split:
+            self.write(Flag.STX + b"C    0" + chunk + Flag.ETB)
+            self.read_until_match(Flag.ETB)
+        self.write(Flag.STX + b"C    0" + Flag.SUB + Flag.ETB + b"\n")
+        self.read_until_match(b"E" + Flag.ETB)
+        self.write(Flag.STX + b"E    0" + Flag.ETB)
+        self.read_until_match(">")
+        program.in_memory = True
 
-    def write(self, buffer: str) -> None:
-        buffer_encoded: bytes = buffer.encode("ascii") + b"\r\n"
-        if TelnetFlag.IAC in buffer_encoded:
-            buffer_encoded = buffer_encoded.replace(TelnetFlag.IAC, TelnetFlag.IAC + TelnetFlag.IAC)
-        self.__socket.sendall(buffer_encoded)
+    def exec_as_program(self, program: Program, name: str) -> None:
+        if name not in program.names:
+            raise ValueError(name)
+        self.write(f"EXE {name}")
+        self.read_until_match(["Program completed.", "Program aborted.", "Program held."])
 
-    def clear_queue(self) -> None:
+    def add_translation_point(self, point: Point) -> None:
+        if point.in_memory:
+            return
+        self.write(f"POINT {point.name} = TRANS({point!s})\n")
+        self.read_until_match("Change?")
+        point.in_memory = True
+
+    def __clear_queue(self) -> None:
         self.__raw_queue_fill()
         self.__raw_queue_process()
         self.__raw_queue = b""
@@ -294,31 +289,31 @@ class Connection:
         while self.__raw_queue:
             char: bytes = self.__raw_queue_get_char()
             if not self.__iac_sequence:
-                if char != TelnetFlag.IAC and char not in {TelnetFlag.NULL, b"\021"}:
+                if char != Flag.IAC and char not in {Flag.NULL, b"\021"}:
                     buffer[self.__subnegotiation] += char
                     continue
                 self.__iac_sequence += char
                 continue
             if len(self.__iac_sequence) == 1:
-                if char in {TelnetFlag.DO, TelnetFlag.DONT, TelnetFlag.WILL, TelnetFlag.WONT}:
+                if char in {Flag.DO, Flag.DONT, Flag.WILL, Flag.WONT}:
                     self.__iac_sequence += char
                     continue
                 self.__iac_sequence = b""
                 match char:
-                    case TelnetFlag.IAC:
+                    case Flag.IAC:
                         buffer[self.__subnegotiation] += char
-                    case TelnetFlag.SB:
+                    case Flag.SB:
                         self.__subnegotiation = True
                         self.__subnegotiation_data_queue = b""
-                    case TelnetFlag.SE:
+                    case Flag.SE:
                         self.__subnegotiation = False
                         self.__subnegotiation_data_queue += buffer[1]
                         buffer[1] = b""
-                self.__negotiate(char, TelnetFlag.NULL)
+                self.__negotiate(char, Flag.NULL)
                 continue
             command: bytes = self.__iac_sequence[1:2]
             self.__iac_sequence = b""
-            if command in {TelnetFlag.DO, TelnetFlag.DONT} or command in {TelnetFlag.WILL, TelnetFlag.WONT}:
+            if command in {Flag.DO, Flag.DONT} or command in {Flag.WILL, Flag.WONT}:
                 self.__negotiate(command, char)
         self.__cooked_queue += buffer[0]
         self.__subnegotiation_data_queue += buffer[1]
@@ -345,31 +340,59 @@ class Connection:
 
     def __negotiate(self, command: bytes, option: bytes) -> None:
         match (command, option):
-            case (TelnetFlag.WILL, TelnetFlag.ECHO):
-                self.__socket.sendall(TelnetFlag.IAC + TelnetFlag.DO + option)
-            case (TelnetFlag.DO, TelnetFlag.TTYPE):
-                self.__socket.sendall(TelnetFlag.IAC + TelnetFlag.WILL + TelnetFlag.TTYPE)
-            case (TelnetFlag.SB, _):
+            case (Flag.WILL, Flag.ECHO):
+                self.__socket.sendall(Flag.IAC + Flag.DO + option)
+            case (Flag.DO, Flag.TTYPE):
+                self.__socket.sendall(Flag.IAC + Flag.WILL + Flag.TTYPE)
+            case (Flag.SB, _):
                 self.__socket.sendall(
-                    TelnetFlag.IAC + TelnetFlag.SB + TelnetFlag.TTYPE + TelnetFlag.NULL + b"VT100" + TelnetFlag.NULL + TelnetFlag.IAC + TelnetFlag.SE,
+                    Flag.IAC + Flag.SB + Flag.TTYPE + Flag.NULL + b"VT100" + Flag.NULL + Flag.IAC + Flag.SE,
                 )
 
     def __socket_descriptor(self) -> int:
         return self.__socket.fileno()
 
+    def __initialize(self) -> None:
+        if not self.__logged_in:
+            return
+
+        current_status: dict[Status, bool] = self.status()
+        if any([
+            current_status[Status.TEACH_LOCK],
+            current_status[Status.TEACH_MODE],
+            current_status[Status.HOLD],
+        ]):
+            self.__dialog("Robot is not ready for operation!")
+            return
+
+        if current_status[Status.ERROR]:
+            self.send(Command.RESET)
+        if current_status[Status.CONTINUOUS_PATH]:
+            self.send(Command.CONTINUOUS_PATH_OFF)
+        if current_status[Status.REPEAT_ONCE]:
+            self.send(Command.REPEAT_ONCE_ON)
+        if current_status[Status.STEP_ONCE]:
+            self.send(Command.STEP_ONCE_OFF)
+        if not current_status[Status.MOTOR_POWERED]:
+            self.send(Command.MOTOR_ON)
+            if not self.status()[Status.MOTOR_POWERED]:
+                self.__dialog("Motor cannot be powered on!")
+
 
 if __name__ == "__main__":
+
     def dialog(msg: str) -> None:
         print(msg)
 
-    robot = Connection("127.0.0.1/9105", dialog)
+    robot = Connection(IPv4Address("127.0.0.1"), 9105, dialog)
     robot.login()
-    program: str = """
-    LMOVE A1
-    LDEPART 80
-    LMOVE A2
-    LDEPART 80
-    """
-    robot.write_program(program, "test")
-    robot.send(Command.EXECUTE_PROG, "test")
+    robot.send(Command.HOME)
+    A1: Point = Point("A1", Cartesian(91.362, 554.329, -193.894, -137.238, 179.217, -5.03))
+    KAWA_PROG: Program = Program(Path("kawachess/as_programs/kawachess.as"))
+    robot.add_translation_point(A1)
+    robot.send(Command.HYBRID_MOVE, A1)
+    robot.load_as_program(KAWA_PROG)
+    robot.exec_as_program(KAWA_PROG, "test")
+    robot.send(Command.HYBRID_MOVE, Point("A1", Cartesian(0.362, 554.329, -193.894, -137.238, 179.217, -5.03)))
+    robot.send(Command.LINEAR_MOVE, A1.shift("A2", Cartesian(x=50)))
     robot.close()

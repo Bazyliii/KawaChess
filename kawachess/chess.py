@@ -29,8 +29,8 @@ class GameContainer(Column):
         self.drop_point: Point = Point("Drop", Cartesian(300.362, 448.329, -93.894, -137.238, 179.217, -5.03))
         self.dialog: Callable[[str], None] = dialog
         self.robot: Connection = robot
-        self.robot.send(Command.ADD_POINT, self.base_point)
-        self.robot.send(Command.ADD_POINT, self.drop_point)
+        self.robot.add_translation_point(self.base_point)
+        self.robot.add_translation_point(self.drop_point)
         self.__skill_level: int
         self.__engine: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
         self.__engine.configure({"Threads": "2", "Hash": "512"})
@@ -144,8 +144,8 @@ class GameContainer(Column):
         from_point: Point = self.calculate_point_to_move(move.uci()[:2], z=80)
         to_point: Point = self.calculate_point_to_move(move.uci()[2:], z=80)
 
-        self.robot.send(Command.ADD_POINT, from_point)
-        self.robot.send(Command.ADD_POINT, to_point)
+        self.robot.add_translation_point(from_point)
+        self.robot.add_translation_point(to_point)
 
         program: str | None = None
         name: str | None = None
@@ -213,8 +213,8 @@ class GameContainer(Column):
                     """
         if program is None or name is None:
             return
-        self.robot.write_program(program, name)
-        self.robot.send(Command.EXECUTE_PROG, name)
+        # self.robot.(program, name)
+        # self.robot.send(Command.EXECUTE_PROG, name)
 
     @property
     def player_name(self) -> str:

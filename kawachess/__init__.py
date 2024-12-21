@@ -10,6 +10,7 @@ __all__: list[str] = [
     "GameData",
     "MaximizeButton",
     "MinimizeButton",
+    "OpenCVDetection",
     "Point",
     "Status",
 ]

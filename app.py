@@ -1,3 +1,4 @@
+from ipaddress import IPv4Address
 from os import getlogin
 from typing import Final
 
@@ -37,7 +38,8 @@ from kawachess import Connection, DatabaseContainer, GameContainer, colors
 from kawachess.components import Button, CloseButton, MaximizeButton, MinimizeButton
 
 # ROBOT_HOST: Final[str] = "192.168.1.155/23"
-ROBOT_HOST: Final[str] = "127.0.0.1/9105"
+ROBOT_IP: Final[str] = "127.0.0.1"
+ROBOT_PORT: Final[int] = 9105
 
 
 class LogsContainer(Column):
@@ -137,7 +139,7 @@ class SettingsContainer(Column):
 class KawaChessApp:
     def __init__(self, page: Page) -> None:
         self.__page: Page = page
-        self.__robot: Connection = Connection(ROBOT_HOST, self.__show_dialog)
+        self.__robot: Connection = Connection(IPv4Address(ROBOT_IP), ROBOT_PORT, self.__show_dialog)
         self.__robot.login()
         self.__game_container: GameContainer = GameContainer(420, self.__show_dialog, self.__robot)
         self.__database_container: DatabaseContainer = DatabaseContainer()
