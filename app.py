@@ -34,7 +34,7 @@ from flet import (
     app,
 )
 
-from kawachess import Connection, DatabaseContainer, GameContainer, colors
+from kawachess import DatabaseContainer, GameContainer, Robot, colors
 from kawachess.components import Button, CloseButton, MaximizeButton, MinimizeButton
 
 # ROBOT_HOST: Final[str] = "192.168.1.155/23"
@@ -70,9 +70,9 @@ class AboutContainer(Column):
 
 
 class SettingsContainer(Column):
-    def __init__(self, robot: Connection, game: GameContainer) -> None:
+    def __init__(self, robot: Robot, game: GameContainer) -> None:
         super().__init__()
-        self.robot: Connection = robot
+        self.robot: Robot = robot
         self.game: GameContainer = game
         self.expand = True
         self.visible = False
@@ -139,7 +139,7 @@ class SettingsContainer(Column):
 class KawaChessApp:
     def __init__(self, page: Page) -> None:
         self.__page: Page = page
-        self.__robot: Connection = Connection(IPv4Address(ROBOT_IP), ROBOT_PORT, self.__show_dialog)
+        self.__robot: Robot = Robot(IPv4Address(ROBOT_IP), ROBOT_PORT, self.__show_dialog)
         self.__robot.login()
         self.__game_container: GameContainer = GameContainer(420, self.__show_dialog, self.__robot)
         self.__database_container: DatabaseContainer = DatabaseContainer()

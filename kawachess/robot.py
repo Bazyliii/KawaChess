@@ -2,7 +2,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
 from ipaddress import IPv4Address
-from pathlib import Path
 from re import Pattern, findall, split, sub
 from re import compile as regex_compile
 from selectors import EVENT_READ, SelectSelector
@@ -125,21 +124,14 @@ class Point:
 
 
 class Program:
-    def __init__(self, program_path: Path) -> None:
-        self.file_name: str = ""
-        self.split: list[bytes] = []
-        if program_path.suffix != ".as":
-            raise ValueError(program_path)
-        with program_path.open(mode="rb") as program:
-            self.file_name = program.name.split("\\")[-1]
-            program_data: bytes = program.read().replace(b"\r", b"").replace(b"\t", b"")
-        self.split = [program_data[i : i + 492] for i in range(0, len(program_data), 492)]
-        self.names: list[str] = findall(r"\.PROGRAM\s+([^\s]+)", program_data.decode("ascii"))
-        self.in_memory: bool = False
+    def __init__(self, program: str) -> None:
+        program_data: bytes = program.encode("ascii")
+        self.split: list[bytes] = [program_data[i : i + 492] for i in range(0, len(program_data), 492)]
+        self.name: str = findall(r"\.PROGRAM\s+([^\s]+)", program_data.decode("ascii"))[0]
 
 
-class Connection:
-    def __init__(self, ip: IPv4Address, port: int, show_dialog: Callable[[str], None]) -> None:
+class Robot:
+    def __init__(self, ip: IPv4Address, port: int, show_dialog: Callable[[str], None] = print) -> None:
         self.__telnet_selector: type = SelectSelector
         self.__dialog: Callable[[str], None] = show_dialog
         self.__ip: str = ip.exploded
@@ -159,7 +151,7 @@ class Connection:
             return
         self.__socket = create_connection((self.__ip, self.__port))
         self.read_until_match("login:")
-        self.write(username)
+        self.__write(username)
         self.read_until_match(">")
         self.__logged_in = True
         self.__initialize()
@@ -167,13 +159,13 @@ class Connection:
         self.__clear_queue()
 
     def status(self) -> dict[Status, bool]:
-        self.write("SWITCH")
+        self.__write("SWITCH")
         message: str = self.read_until_match(["Press SPACE key to continue"]).split("SWITCH\r")[1]
         split_pattern: Pattern[str] = regex_compile(r" ON| OFF")
         replace_pattern: Pattern[str] = regex_compile(r"[ \n*\r]")
         raw_data: list[str] = [sub(replace_pattern, "", s) for s in split(pattern=split_pattern, string=message)][:-1]
         status_data: dict[str, bool] = {key: value == " ON" for key, value in zip(raw_data, findall(split_pattern, string=message), strict=True)}
-        self.write("\n")
+        self.__write("\n")
         self.__clear_queue()
         return {
             Status.BUSY: status_data["CS"],
@@ -193,16 +185,18 @@ class Connection:
             return
         match command.type:
             case CommandType.CONFIG:
-                self.write(command.val)
+                self.__write(command.val)
                 self.read_until_match([">", "Program aborted."])
             case CommandType.MOVEMENT:
                 if arg is None:
-                    self.write(f"{command.val}")
+                    self.__write(f"{command.val}")
                 elif type(arg) is Point:
                     if not arg.in_memory:
                         self.add_translation_point(arg)
-                    self.write(f"{command.val} {arg.name}")
-                self.read_until_match(["DO motion completed.", "suddenly changed.", "Destination is out of motion range."])
+                    self.__write(f"{command.val} {arg.name}")
+                state: str = self.read_until_match(["DO motion completed.", "suddenly changed.", "Destination is out of motion range."])
+                if "suddenly changed." in state or "Destination is out of motion range." in state:
+                    raise RuntimeError(state)
                 sleep(0.3)
         sleep(0.1)
 
@@ -215,7 +209,7 @@ class Connection:
         self.__subnegotiation: bool = False
         self.__subnegotiation_data_queue: bytes = b""
         if self.__logged_in:
-            self.write("signal -2011")
+            self.__write("signal -2011")
             self.__dialog("Logged out and disconnected!")
             self.__socket.close()
             self.__logged_in = False
@@ -241,41 +235,41 @@ class Connection:
                         return buffer.decode("ascii")
         raise EOFError
 
-    def write(self, buffer: str | bytes, end: bytes = b"\r\n") -> None:
-        buffer_encoded: bytes = (bytes(buffer) if isinstance(buffer, bytes | bytearray | memoryview) else buffer.encode("ascii")).replace(
-            Flag.IAC,
-            Flag.IAC + Flag.IAC,
-        )
-        self.__socket.sendall(buffer_encoded + end)
-
     def load_as_program(self, program: Program) -> None:
-        if program.in_memory:
-            return
-        self.write("KILL\n1\n")
-        self.write(f"LOAD {program.file_name}")
+        self.__write("KILL\n1\n")
+        self.__write(f"LOAD {program.name}")
         self.read_until_match(".as")
-        self.write(Flag.STX + b"A    0" + Flag.ETB)
+        self.__write(Flag.STX + b"A    0" + Flag.ETB)
         for chunk in program.split:
-            self.write(Flag.STX + b"C    0" + chunk + Flag.ETB)
+            self.__write(Flag.STX + b"C    0" + chunk + Flag.ETB)
             self.read_until_match(Flag.ETB)
-        self.write(Flag.STX + b"C    0" + Flag.SUB + Flag.ETB + b"\n")
+        self.__write(Flag.STX + b"C    0" + Flag.SUB + Flag.ETB + b"\n")
         self.read_until_match(b"E" + Flag.ETB)
-        self.write(Flag.STX + b"E    0" + Flag.ETB)
+        self.__write(Flag.STX + b"E    0" + Flag.ETB)
         self.read_until_match(">")
-        program.in_memory = True
 
-    def exec_as_program(self, program: Program, name: str) -> None:
-        if name not in program.names:
-            raise ValueError(name)
-        self.write(f"EXE {name}")
-        self.read_until_match(["Program completed.", "Program aborted.", "Program held."])
+    def exec_as_program(self, program: Program) -> None:
+        self.__write(f"EXE {program.name}")
+        state: str = self.read_until_match(["Program completed.", "Program aborted.", "Program held."])
+        if "Program held." in state or "Program aborted." in state:
+            print("Program held or aborted!")
 
-    def add_translation_point(self, point: Point) -> None:
-        if point.in_memory:
-            return
-        self.write(f"POINT {point.name} = TRANS({point!s})\n")
-        self.read_until_match("Change?")
-        point.in_memory = True
+    def add_translation_point(self, *points: Point) -> None:
+        for point in points:
+            if point.in_memory:
+                continue
+            self.__write(f"POINT {point.name} = TRANS({point!s})\n")
+            self.read_until_match("Change?")
+            point.in_memory = True
+
+    def remove_translation_point(self, *points: Point) -> None:
+        self.__write("KILL\n1\n")
+        for point in points:
+            if not point.in_memory:
+                continue
+            self.__write(f"DELETE/L {point.name}\n1\n")
+            self.read_until_match(">")
+            point.in_memory = False
 
     def __clear_queue(self) -> None:
         self.__raw_queue_fill()
@@ -378,21 +372,9 @@ class Connection:
             if not self.status()[Status.MOTOR_POWERED]:
                 self.__dialog("Motor cannot be powered on!")
 
-
-if __name__ == "__main__":
-
-    def dialog(msg: str) -> None:
-        print(msg)
-
-    robot = Connection(IPv4Address("127.0.0.1"), 9105, dialog)
-    robot.login()
-    robot.send(Command.HOME)
-    A1: Point = Point("A1", Cartesian(91.362, 554.329, -193.894, -137.238, 179.217, -5.03))
-    KAWA_PROG: Program = Program(Path("kawachess/as_programs/kawachess.as"))
-    robot.add_translation_point(A1)
-    robot.send(Command.HYBRID_MOVE, A1)
-    robot.load_as_program(KAWA_PROG)
-    robot.exec_as_program(KAWA_PROG, "test")
-    robot.send(Command.HYBRID_MOVE, Point("A1", Cartesian(0.362, 554.329, -193.894, -137.238, 179.217, -5.03)))
-    robot.send(Command.LINEAR_MOVE, A1.shift("A2", Cartesian(x=50)))
-    robot.close()
+    def __write(self, buffer: str | bytes, end: bytes = b"\r\n") -> None:
+        buffer_encoded: bytes = (bytes(buffer) if isinstance(buffer, bytes | bytearray | memoryview) else buffer.encode("ascii")).replace(
+            Flag.IAC,
+            Flag.IAC + Flag.IAC,
+        )
+        self.__socket.sendall(buffer_encoded + end)

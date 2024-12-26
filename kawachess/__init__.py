@@ -4,7 +4,6 @@ __all__: list[str] = [
     "ChessDatabase",
     "CloseButton",
     "Command",
-    "Connection",
     "DatabaseContainer",
     "GameContainer",
     "GameData",
@@ -12,9 +11,22 @@ __all__: list[str] = [
     "MinimizeButton",
     "OpenCVDetection",
     "Point",
+    "Robot",
     "Status",
+    "en_passant",
+    "kingside_castling",
+    "move_with_capture",
+    "move_without_capture",
+    "queenside_castling",
 ]
 
+from kawachess.astemplates import (
+    en_passant,
+    kingside_castling,
+    move_with_capture,
+    move_without_capture,
+    queenside_castling,
+)
 from kawachess.chess import (
     GameContainer,
 )
@@ -32,8 +44,8 @@ from kawachess.database import (
 from kawachess.robot import (
     Cartesian,
     Command,
-    Connection,
     Point,
+    Robot,
     Status,
 )
 from kawachess.vision import (
