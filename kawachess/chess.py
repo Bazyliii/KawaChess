@@ -37,23 +37,6 @@ class GameContainer(Column):
         self.drop: Point = Point("drop", Cartesian(300.362, 448.329, -93.894, -137.238, 179.217, -5.03))
         self.dialog: Callable[[str], None] = dialog
         self.robot: Robot = robot
-        self.robot.add_translation_point(
-            self.A1,
-            self.A8,
-            self.E1,
-            self.E8,
-            self.G1,
-            self.G8,
-            self.H1,
-            self.H8,
-            self.F1,
-            self.F8,
-            self.C1,
-            self.C8,
-            self.D1,
-            self.D8,
-            self.drop,
-        )
         self.__skill_level: int
         self.__engine: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
         self.__engine.configure({"Threads": "2", "Hash": "512"})
@@ -106,6 +89,23 @@ class GameContainer(Column):
     def start_game(self) -> None:
         if self.__game_status:
             return
+        self.robot.add_translation_point(
+            self.A1,
+            self.A8,
+            self.E1,
+            self.E8,
+            self.G1,
+            self.G8,
+            self.H1,
+            self.H8,
+            self.F1,
+            self.F8,
+            self.C1,
+            self.C8,
+            self.D1,
+            self.D8,
+            self.drop,
+        )
         player_turn: bool = False
         STARTING_BOARD_FEN = "r1b1kb1r/3pnppp/1Qp1p3/4P3/p1P1B3/P5P1/1P3P1P/2B1R1K1"
         self.board.reset()
@@ -123,7 +123,7 @@ class GameContainer(Column):
             if engine_move is None or engine_move not in self.board.legal_moves:
                 continue
 
-            program: Program = self.process_robot_move(engine_move)
+            program: Program = self.get_move_program(engine_move)
             self.robot.load_as_program(program)
             self.robot.exec_as_program(program)
 
@@ -156,9 +156,9 @@ class GameContainer(Column):
             self.dialog("Game over!")
         self.update()
 
-    def process_robot_move(self, move: Move, speed: int = 5, height: int = 80) -> Program:
-        from_point: Point = self.calculate_point_to_move(move.uci()[:2], height)
-        to_point: Point = self.calculate_point_to_move(move.uci()[2:], height)
+    def get_move_program(self, move: Move, speed: int = 5, height: int = 80) -> Program:
+        from_point: Point = self.calculate_point_to_move(move.uci()[0:2], height)
+        to_point: Point = self.calculate_point_to_move(move.uci()[2:4], height)
         self.robot.add_translation_point(from_point, to_point)
         if self.board.is_capture(move):
             if self.board.is_en_passant(move):

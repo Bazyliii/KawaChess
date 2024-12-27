@@ -140,7 +140,10 @@ class KawaChessApp:
     def __init__(self, page: Page) -> None:
         self.__page: Page = page
         self.__robot: Robot = Robot(IPv4Address(ROBOT_IP), ROBOT_PORT, self.__show_dialog)
-        self.__robot.login()
+        try:
+            self.__robot.login()
+        except ConnectionRefusedError:
+            self.__show_dialog("Failed to connect to robot!")
         self.__game_container: GameContainer = GameContainer(420, self.__show_dialog, self.__robot)
         self.__database_container: DatabaseContainer = DatabaseContainer()
         self.__logs_container: LogsContainer = LogsContainer()
