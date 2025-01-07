@@ -6,13 +6,13 @@ from cv2 import CAP_PROP_FPS, VideoCapture, imencode, resize
 from flet import FilterQuality, Image
 
 if TYPE_CHECKING:
-    from numpy import ndarray
+    from numpy.typing import NDArray
 
 
 class OpenCVDetection(Image):
     def __init__(self, image_size: int) -> None:
         super().__init__()
-        self.capture = VideoCapture(0)
+        self.capture: VideoCapture = VideoCapture(0)
         self.image_size: int = image_size
         self.width = self.height = self.image_size
         self.filter_quality = FilterQuality.NONE
@@ -22,7 +22,7 @@ class OpenCVDetection(Image):
             self.src = "no_camera.png"
             self.update()
             return
-        frame: ndarray = self.capture.read()[1]
+        frame: NDArray = self.capture.read()[1]
         frame_shape: tuple = frame.shape
         x: int = frame_shape[1] // 2
         y: int = frame_shape[0] // 2
@@ -33,8 +33,8 @@ class OpenCVDetection(Image):
         top: int = y - margin
         delay: float = 0.5 / self.capture.get(CAP_PROP_FPS)
         while self.capture.isOpened():
-            frame: ndarray = self.capture.read()[1]
-            resized_frame: ndarray = resize(frame[top:bottom, left:right], (self.image_size, self.image_size))
+            frame = self.capture.read()[1]
+            resized_frame: NDArray = resize(frame[top:bottom, left:right], (self.image_size, self.image_size))
             self.src_base64 = b64encode(imencode(".bmp", resized_frame)[1]).decode("utf-8")
             self.update()
             sleep(delay)
@@ -47,4 +47,3 @@ class OpenCVDetection(Image):
 
     def close(self) -> None:
         self.capture.release()
-

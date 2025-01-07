@@ -146,7 +146,7 @@ class KawaChessApp:
             self.__show_dialog("Failed to connect to robot!")
         self.__game_container: GameContainer = GameContainer(420, self.__show_dialog, self.__robot)
         self.__database_container: DatabaseContainer = DatabaseContainer()
-        self.__logs_container: LogsContainer = LogsContainer()
+        # self.__logs_container: LogsContainer = LogsContainer()
         self.__settings_container: SettingsContainer = SettingsContainer(self.__robot, self.__game_container)
         self.__about_container: AboutContainer = AboutContainer()
         self.__maximize_button: IconButton = MaximizeButton(on_click=lambda _: self.__maximize())
@@ -183,7 +183,7 @@ class KawaChessApp:
             destinations=[
                 NavigationRailDestination(icon=Icons.PLAY_ARROW_OUTLINED, label="Game"),
                 NavigationRailDestination(icon=Icons.STACKED_LINE_CHART_OUTLINED, label="Database"),
-                NavigationRailDestination(icon=Icons.RECEIPT_LONG_OUTLINED, label="Logs"),
+                # NavigationRailDestination(icon=Icons.RECEIPT_LONG_OUTLINED, label="Logs"),
                 NavigationRailDestination(icon=Icons.SETTINGS_OUTLINED, label="Settings"),
                 NavigationRailDestination(icon=Icons.INFO_OUTLINED, label="About"),
             ],
@@ -203,7 +203,7 @@ class KawaChessApp:
                     self.__navigation_rail,
                     self.__game_container,
                     self.__database_container,
-                    self.__logs_container,
+                    # self.__logs_container,
                     self.__settings_container,
                     self.__about_container,
                 ],

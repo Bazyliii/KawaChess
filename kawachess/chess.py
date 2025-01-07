@@ -4,7 +4,7 @@ from typing import Final
 
 from chess import Board, Move, svg
 from chess.engine import Limit, SimpleEngine
-from flet import Column, CrossAxisAlignment, Image, MainAxisAlignment, Row, icons
+from flet import Column, CrossAxisAlignment, Icons, Image, MainAxisAlignment, Row
 from pytz import BaseTzInfo, timezone
 
 from kawachess.astemplates import en_passant, kingside_castling, move_with_capture, move_without_capture, queenside_castling
@@ -74,12 +74,12 @@ class GameContainer(Column):
                     Button(
                         text="Start game",
                         on_click=lambda _: self.start_game(),
-                        icon=icons.PLAY_ARROW_OUTLINED,
+                        icon=Icons.PLAY_ARROW_OUTLINED,
                     ),
                     Button(
                         text="Resign game",
                         on_click=lambda _: self.resign_game(),
-                        icon=icons.HANDSHAKE_OUTLINED,
+                        icon=Icons.HANDSHAKE_OUTLINED,
                     ),
                 ],
                 alignment=MainAxisAlignment.CENTER,
@@ -87,6 +87,9 @@ class GameContainer(Column):
         ]
 
     def start_game(self) -> None:
+        if not self.robot.logged_in:
+            self.dialog("Connect to robot first!")
+            return
         if self.__game_status:
             return
         self.robot.add_translation_point(

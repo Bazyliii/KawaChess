@@ -1,6 +1,6 @@
 from collections.abc import Callable
 
-from flet import ButtonStyle, ElevatedButton, IconButton, RoundedRectangleBorder, icons
+from flet import ButtonStyle, ElevatedButton, IconButton, Icons, RoundedRectangleBorder
 
 from kawachess.colors import ACCENT_COLOR_1, ACCENT_COLOR_3, BLUE, GREEN, GREY, RED, WHITE
 
@@ -22,7 +22,7 @@ class Button(ElevatedButton):
 class CloseButton(IconButton):
     def __init__(self, on_click: Callable | None = None) -> None:
         super().__init__()
-        self.icon = icons.CLOSE
+        self.icon = Icons.CLOSE
         self.icon_size = 13
         self.on_click = on_click
         self.icon_color = GREY
@@ -33,7 +33,7 @@ class CloseButton(IconButton):
 class MinimizeButton(CloseButton):
     def __init__(self, on_click: Callable | None = None) -> None:
         super().__init__()
-        self.icon = icons.MINIMIZE
+        self.icon = Icons.MINIMIZE
         self.on_click = on_click
         self.hover_color = GREEN
 
@@ -41,8 +41,8 @@ class MinimizeButton(CloseButton):
 class MaximizeButton(CloseButton):
     def __init__(self, on_click: Callable | None = None) -> None:
         super().__init__()
-        self.icon = icons.CHECK_BOX_OUTLINE_BLANK
+        self.icon = Icons.CHECK_BOX_OUTLINE_BLANK
         self.on_click = on_click
         self.selected = False
-        self.selected_icon = icons.COPY_OUTLINED
+        self.selected_icon = Icons.COPY_OUTLINED
         self.hover_color = BLUE

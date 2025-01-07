@@ -144,16 +144,18 @@ class Robot:
         self.__subnegotiation: bool = False
         self.__subnegotiation_data_queue: bytes = b""
         self.__socket: socket = socket()
-        self.__logged_in: bool = False
+        self.logged_in: bool = False
 
     def login(self, username: str = "as") -> None:
-        if self.__logged_in:
+        if self.logged_in:
             return
         self.__socket = create_connection((self.__ip, self.__port))
+        if not self.__socket:
+            return
         self.read_until_match("login:")
         self.__write(username)
         self.read_until_match(">")
-        self.__logged_in = True
+        self.logged_in = True
         self.__initialize()
         self.__dialog("Connected and logged in!")
         self.__clear_queue()
@@ -181,7 +183,7 @@ class Robot:
         }
 
     def send(self, command: Command, arg: Point | None = None) -> None:
-        if not self.__logged_in:
+        if not self.logged_in:
             return
         match command.type:
             case CommandType.CONFIG:
@@ -208,11 +210,11 @@ class Robot:
         self.__iac_sequence: bytes = b""
         self.__subnegotiation: bool = False
         self.__subnegotiation_data_queue: bytes = b""
-        if self.__logged_in:
+        if self.logged_in:
             self.__write("signal -2011")
             self.__dialog("Logged out and disconnected!")
             self.__socket.close()
-            self.__logged_in = False
+            self.logged_in = False
 
     def read_until_match(self, matches: list[bytes | str] | bytes | str) -> str:
         matches_encoded: list[bytes] = []
@@ -347,7 +349,7 @@ class Robot:
         return self.__socket.fileno()
 
     def __initialize(self) -> None:
-        if not self.__logged_in:
+        if not self.logged_in:
             return
 
         current_status: dict[Status, bool] = self.status()
