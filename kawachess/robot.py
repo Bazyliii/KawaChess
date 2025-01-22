@@ -7,9 +7,13 @@ from re import compile as regex_compile
 from selectors import EVENT_READ, SelectSelector
 from socket import create_connection, socket
 from time import sleep
-from typing import NamedTuple
+from typing import Final, NamedTuple
+from warnings import deprecated, warn
+
+warn("kawachess.robot is deprecated. Use kawachess.robot_async instead.", DeprecationWarning, stacklevel=2)
 
 
+@deprecated("Use AsyncRobot instead!")
 class Status(Enum):
     """
     Robot status.
@@ -38,11 +42,13 @@ class Status(Enum):
     STEP_ONCE = auto()
 
 
+@deprecated("Use AsyncRobot instead!")
 class CommandType(Enum):
     CONFIG = auto()
     MOVEMENT = auto()
 
 
+@deprecated("Use AsyncRobot instead!")
 class Command(Enum):
     RESET = ("ERESET", CommandType.CONFIG)
     ABORT = ("ABORT", CommandType.CONFIG)
@@ -70,6 +76,7 @@ class Command(Enum):
         return CommandType(self.value[1])
 
 
+@deprecated("Use AsyncRobot instead!")
 @dataclass(frozen=True)
 class Flag:
     IAC: bytes = bytes([255])  # Interpret As Command
@@ -96,6 +103,7 @@ class Flag:
     NULL: bytes = bytes([0])  # Null
 
 
+@deprecated("Use AsyncRobot instead!")
 class Cartesian(NamedTuple):
     x: float = 0.0
     y: float = 0.0
@@ -105,6 +113,7 @@ class Cartesian(NamedTuple):
     t: float = 0.0
 
 
+@deprecated("Use AsyncRobot instead!")
 class Point:
     def __init__(self, name: str, point: Cartesian) -> None:
         self.name: str = name
@@ -119,10 +128,12 @@ class Point:
     def __str__(self) -> str:
         return f"{self.__x},{self.__y},{self.__z},{self.__o},{self.__a},{self.__t}"
 
+    @deprecated("Use AsyncRobot instead")
     def shift(self, name: str, shift: Cartesian) -> "Point":
         return Point(name, Cartesian(self.__x + shift.x, self.__y + shift.y, self.__z + shift.z, self.__o + shift.o, self.__a + shift.a, self.__t + shift.t))
 
 
+@deprecated("Use AsyncRobot instead!")
 class Program:
     def __init__(self, program: str) -> None:
         program_data: bytes = program.encode("ascii")
@@ -130,7 +141,11 @@ class Program:
         self.name: str = findall(r"\.PROGRAM\s+([^\s]+)", program_data.decode("ascii"))[0]
 
 
+@deprecated("Use AsyncRobot instead!", stacklevel=4)
 class Robot:
+    SPLIT_PATTERN: Final[Pattern[str]] = regex_compile(r" ON| OFF")
+    REPLACE_PATTERN: Final[Pattern[str]] = regex_compile(r"[ \n*\r]")
+
     def __init__(self, ip: IPv4Address, port: int, show_dialog: Callable[[str], None] = print) -> None:
         self.__telnet_selector: type = SelectSelector
         self.__dialog: Callable[[str], None] = show_dialog
@@ -146,11 +161,14 @@ class Robot:
         self.__socket: socket = socket()
         self.logged_in: bool = False
 
+    @deprecated("Use AsyncRobot instead")
     def login(self, username: str = "as") -> None:
         if self.logged_in:
             return
-        self.__socket = create_connection((self.__ip, self.__port))
-        if not self.__socket:
+        try:
+            self.__socket = create_connection((self.__ip, self.__port))
+        except ConnectionRefusedError:
+            self.__dialog("Connection refused!\nCheck IP and port!")
             return
         self.read_until_match("login:")
         self.__write(username)
@@ -160,13 +178,12 @@ class Robot:
         self.__dialog("Connected and logged in!")
         self.__clear_queue()
 
+    @deprecated("Use AsyncRobot instead")
     def status(self) -> dict[Status, bool]:
         self.__write("SWITCH")
         message: str = self.read_until_match(["Press SPACE key to continue"]).split("SWITCH\r")[1]
-        split_pattern: Pattern[str] = regex_compile(r" ON| OFF")
-        replace_pattern: Pattern[str] = regex_compile(r"[ \n*\r]")
-        raw_data: list[str] = [sub(replace_pattern, "", s) for s in split(pattern=split_pattern, string=message)][:-1]
-        status_data: dict[str, bool] = {key: value == " ON" for key, value in zip(raw_data, findall(split_pattern, string=message), strict=True)}
+        raw_data: list[str] = [sub(self.REPLACE_PATTERN, "", s) for s in split(pattern=self.SPLIT_PATTERN, string=message)][:-1]
+        status_data: dict[str, bool] = {key: value == " ON" for key, value in zip(raw_data, findall(self.SPLIT_PATTERN, string=message), strict=True)}
         self.__write("\n")
         self.__clear_queue()
         return {
@@ -182,6 +199,7 @@ class Robot:
             Status.STEP_ONCE: status_data["STP_ONCE"],
         }
 
+    @deprecated("Use AsyncRobot instead")
     def send(self, command: Command, arg: Point | None = None) -> None:
         if not self.logged_in:
             return
@@ -202,6 +220,7 @@ class Robot:
                 sleep(0.3)
         sleep(0.1)
 
+    @deprecated("Use AsyncRobot instead")
     def close(self) -> None:
         self.__raw_queue: bytes = b""
         self.__raw_queue_index: int = 0
@@ -216,6 +235,7 @@ class Robot:
             self.__socket.close()
             self.logged_in = False
 
+    @deprecated("Use AsyncRobot instead")
     def read_until_match(self, matches: list[bytes | str] | bytes | str) -> str:
         matches_encoded: list[bytes] = []
         if isinstance(matches, list):
@@ -237,6 +257,7 @@ class Robot:
                         return buffer.decode("ascii")
         raise EOFError
 
+    @deprecated("Use AsyncRobot instead")
     def load_as_program(self, program: Program) -> None:
         self.__write("KILL\n1\n")
         self.__write(f"LOAD {program.name}")
@@ -250,12 +271,14 @@ class Robot:
         self.__write(Flag.STX + b"E    0" + Flag.ETB)
         self.read_until_match(">")
 
+    @deprecated("Use AsyncRobot instead")
     def exec_as_program(self, program: Program) -> None:
         self.__write(f"EXE {program.name}")
         state: str = self.read_until_match(["Program completed.", "Program aborted.", "Program held."])
         if "Program held." in state or "Program aborted." in state:
-            print("Program held or aborted!")
+            pass
 
+    @deprecated("Use AsyncRobot instead")
     def add_translation_point(self, *points: Point) -> None:
         for point in points:
             if point.in_memory:
@@ -264,6 +287,7 @@ class Robot:
             self.read_until_match("Change?")
             point.in_memory = True
 
+    @deprecated("Use AsyncRobot instead")
     def remove_translation_point(self, *points: Point) -> None:
         self.__write("KILL\n1\n")
         for point in points:
@@ -353,11 +377,13 @@ class Robot:
             return
 
         current_status: dict[Status, bool] = self.status()
-        if any([
-            current_status[Status.TEACH_LOCK],
-            current_status[Status.TEACH_MODE],
-            current_status[Status.HOLD],
-        ]):
+        if any(
+            [
+                current_status[Status.TEACH_LOCK],
+                current_status[Status.TEACH_MODE],
+                current_status[Status.HOLD],
+            ]
+        ):
             self.__dialog("Robot is not ready for operation!")
             return
 
