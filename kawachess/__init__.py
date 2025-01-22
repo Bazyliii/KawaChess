@@ -1,18 +1,22 @@
 __all__: list[str] = [
+    "AsyncRobot",
+    "AsyncRobot",
     "Button",
     "Cartesian",
     "ChessDatabase",
     "CloseButton",
-    "Command",
     "DatabaseContainer",
+    "Flag",
     "GameContainer",
     "GameData",
     "MaximizeButton",
     "MinimizeButton",
+    "Move",
     "OpenCVDetection",
     "Point",
-    "Robot",
+    "Program",
     "Status",
+    "Switch",
     "en_passant",
     "kingside_castling",
     "move_with_capture",
@@ -41,12 +45,15 @@ from kawachess.database import (
     DatabaseContainer,
     GameData,
 )
-from kawachess.robot import (
+from kawachess.robot_async import (
+    AsyncRobot,
     Cartesian,
-    Command,
+    Flag,
+    Move,
     Point,
-    Robot,
+    Program,
     Status,
+    Switch,
 )
 from kawachess.vision import (
     OpenCVDetection,
