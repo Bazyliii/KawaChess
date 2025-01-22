@@ -1,6 +1,6 @@
 from chess import Color
 
-from kawachess.robot import Point, Program
+from kawachess.robot_async import Point, Program
 
 
 def move_without_capture(from_point: Point, to_point: Point, drop: Point, speed: int, height: int) -> Program:
@@ -17,7 +17,8 @@ def move_without_capture(from_point: Point, to_point: Point, drop: Point, speed:
             LMOVE {drop.name}
         .END
 
-        """)
+        """
+    )
 
 
 def move_with_capture(from_point: Point, to_point: Point, drop: Point, speed: int, height: int) -> Program:
@@ -38,7 +39,8 @@ def move_with_capture(from_point: Point, to_point: Point, drop: Point, speed: in
             LMOVE {drop.name}
         .END
 
-        """)
+        """
+    )
 
 
 def kingside_castling(drop: Point, color: Color, speed: int, height: int) -> Program:
@@ -63,7 +65,8 @@ def kingside_castling(drop: Point, color: Color, speed: int, height: int) -> Pro
             LMOVE {drop.name}
         .END
 
-        """)
+        """
+    )
 
 
 def queenside_castling(drop: Point, color: Color, speed: int, height: int) -> Program:
@@ -88,7 +91,8 @@ def queenside_castling(drop: Point, color: Color, speed: int, height: int) -> Pr
             LMOVE {drop.name}
         .END
 
-        """)
+        """
+    )
 
 
 def en_passant(from_point: Point, to_point: Point, take_point: Point, drop: Point, speed: int, height: int) -> Program:
@@ -108,4 +112,5 @@ def en_passant(from_point: Point, to_point: Point, take_point: Point, drop: Poin
             LMOVE {drop.name}
         .END
 
-        """)
+        """
+    )

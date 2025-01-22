@@ -12,13 +12,15 @@ if TYPE_CHECKING:
 class OpenCVDetection(Image):
     def __init__(self, image_size: int) -> None:
         super().__init__()
-        self.capture: VideoCapture = VideoCapture(0)
+        self.capture: VideoCapture = VideoCapture(2)
         self.image_size: int = image_size
         self.width = self.height = self.image_size
         self.filter_quality = FilterQuality.NONE
+        self.__is_mounted = False
 
     def did_mount(self) -> None:
-        if not self.capture.isOpened() or self.capture.get(CAP_PROP_FPS) == 0:
+        self.__is_mounted = True
+        if not self.capture.isOpened():
             self.src = "no_camera.png"
             self.update()
             return
@@ -31,13 +33,23 @@ class OpenCVDetection(Image):
         right: int = x + margin
         bottom: int = y + margin
         top: int = y - margin
-        delay: float = 0.5 / self.capture.get(CAP_PROP_FPS)
+        # FIXME
+        try:
+            delay: float = 0.5 / self.capture.get(CAP_PROP_FPS)
+        except:
+            delay: float = 0.5 / 30
+
         while self.capture.isOpened():
             frame = self.capture.read()[1]
             resized_frame: NDArray = resize(frame[top:bottom, left:right], (self.image_size, self.image_size))
             self.src_base64 = b64encode(imencode(".bmp", resized_frame)[1]).decode("utf-8")
+            if not self.__is_mounted:
+                break
             self.update()
             sleep(delay)
+
+    def will_unmount(self) -> None:
+        self.__is_mounted = False
 
     def build(self) -> None:
         self.img = Image(height=self.image_size, width=self.image_size)

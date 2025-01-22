@@ -1,9 +1,11 @@
-from ipaddress import IPv4Address
 from os import getlogin
 from typing import Final
 
 from flet import (
     AlertDialog,
+    AnimatedSwitcher,
+    AnimatedSwitcherTransition,
+    AnimationCurve,
     AppBar,
     Column,
     ControlEvent,
@@ -34,30 +36,21 @@ from flet import (
     app,
 )
 
-from kawachess import DatabaseContainer, GameContainer, Robot, colors
+from kawachess import DatabaseContainer, colors
+from kawachess.chess import GameContainer
 from kawachess.components import Button, CloseButton, MaximizeButton, MinimizeButton
+from kawachess.robot_async import AsyncRobot
 
-# ROBOT_HOST: Final[str] = "192.168.1.155/23"
+# ROBOT_IP: Final[str] = "192.168.1.155"
+# ROBOT_PORT: Final[int] = 23
 ROBOT_IP: Final[str] = "127.0.0.1"
 ROBOT_PORT: Final[int] = 9105
-
-
-class LogsContainer(Column):
-    def __init__(self) -> None:
-        super().__init__()
-        self.expand = True
-        self.bgcolor: str = colors.ACCENT_COLOR_2
-        self.alignment = MainAxisAlignment.CENTER
-        self.horizontal_alignment = CrossAxisAlignment.CENTER
-        self.visible = False
-        self.controls = [Text("LOGS", size=40, weight=FontWeight.BOLD, text_align=TextAlign.CENTER)]
 
 
 class AboutContainer(Column):
     def __init__(self) -> None:
         super().__init__()
         self.expand = True
-        self.visible = False
         self.alignment = MainAxisAlignment.CENTER
         self.horizontal_alignment = CrossAxisAlignment.CENTER
         self.controls = [
@@ -70,12 +63,11 @@ class AboutContainer(Column):
 
 
 class SettingsContainer(Column):
-    def __init__(self, robot: Robot, game: GameContainer) -> None:
+    def __init__(self, robot: AsyncRobot, game: GameContainer) -> None:
         super().__init__()
-        self.robot: Robot = robot
+        self.robot: AsyncRobot = robot
         self.game: GameContainer = game
         self.expand = True
-        self.visible = False
         self.alignment = MainAxisAlignment.CENTER
         self.horizontal_alignment = CrossAxisAlignment.CENTER
         self.__nickname_field: TextField = TextField(
@@ -120,8 +112,8 @@ class SettingsContainer(Column):
             self.__skill_slider,
             Row(
                 [
-                    Button(text="Reconnect robot", icon=Icons.REPLAY_OUTLINED, on_click=lambda _: self.robot.login()),
-                    Button(text="Disconnect robot", icon=Icons.BLOCK_OUTLINED, on_click=lambda _: self.robot.close()),
+                    Button(text="Reconnect robot", icon=Icons.REPLAY_OUTLINED, on_click=self.__connect),
+                    Button(text="Disconnect robot", icon=Icons.BLOCK_OUTLINED, on_click=self.__disconnect),
                 ],
                 alignment=MainAxisAlignment.CENTER,
             ),
@@ -135,23 +127,25 @@ class SettingsContainer(Column):
     def __control_changed(event: ControlEvent, target_object: object, attribute_name: str | int) -> None:
         setattr(target_object, str(attribute_name), event.control.value)
 
+    async def __disconnect(self, *_: object) -> None:
+        await self.robot.disconnect()
+
+    async def __connect(self, *_: object) -> None:
+        await self.robot.connect()
+
 
 class KawaChessApp:
     def __init__(self, page: Page) -> None:
         self.__page: Page = page
-        self.__robot: Robot = Robot(IPv4Address(ROBOT_IP), ROBOT_PORT, self.__show_dialog)
-        try:
-            self.__robot.login()
-        except ConnectionRefusedError:
-            self.__show_dialog("Failed to connect to robot!")
+        self.__robot: AsyncRobot = AsyncRobot(ROBOT_IP, ROBOT_PORT)
+        self.__page.run_task(self.__robot.connect)
         self.__game_container: GameContainer = GameContainer(420, self.__show_dialog, self.__robot)
         self.__database_container: DatabaseContainer = DatabaseContainer()
-        # self.__logs_container: LogsContainer = LogsContainer()
         self.__settings_container: SettingsContainer = SettingsContainer(self.__robot, self.__game_container)
         self.__about_container: AboutContainer = AboutContainer()
         self.__maximize_button: IconButton = MaximizeButton(on_click=lambda _: self.__maximize())
         self.__minimize_button: IconButton = MinimizeButton(on_click=lambda _: self.__minimize())
-        self.__close_button: IconButton = CloseButton(on_click=lambda _: self.__close())
+        self.__close_button: IconButton = CloseButton(self.__close)
         self.__page.bgcolor = colors.MAIN_COLOR
         self.__page.title = "KawaChess"
         self.__page.window.alignment = alignment.center
@@ -161,6 +155,17 @@ class KawaChessApp:
         self.__page.window.always_on_top = True
         self.__page.padding = 0
         self.__page.window.on_event = self.__window_event
+
+        self.__switcher = AnimatedSwitcher(
+            self.__game_container,
+            transition=AnimatedSwitcherTransition.FADE,
+            duration=500,
+            reverse_duration=100,
+            switch_in_curve=AnimationCurve.EASE_IN,
+            switch_out_curve=AnimationCurve.EASE_OUT,
+            expand=True,
+        )
+
         self.__title_bar = AppBar(
             toolbar_height=32,
             title=WindowDragArea(
@@ -183,7 +188,6 @@ class KawaChessApp:
             destinations=[
                 NavigationRailDestination(icon=Icons.PLAY_ARROW_OUTLINED, label="Game"),
                 NavigationRailDestination(icon=Icons.STACKED_LINE_CHART_OUTLINED, label="Database"),
-                # NavigationRailDestination(icon=Icons.RECEIPT_LONG_OUTLINED, label="Logs"),
                 NavigationRailDestination(icon=Icons.SETTINGS_OUTLINED, label="Settings"),
                 NavigationRailDestination(icon=Icons.INFO_OUTLINED, label="About"),
             ],
@@ -201,11 +205,7 @@ class KawaChessApp:
             Row(
                 [
                     self.__navigation_rail,
-                    self.__game_container,
-                    self.__database_container,
-                    # self.__logs_container,
-                    self.__settings_container,
-                    self.__about_container,
+                    self.__switcher,
                 ],
                 expand=True,
                 spacing=0,
@@ -214,17 +214,19 @@ class KawaChessApp:
         self.__page.update()
 
     def __change_container(self, e: ControlEvent) -> None:
-        if not self.__page.controls:
-            return
-        index: int = e.control.selected_index
-        if index == 1:
-            self.__database_container.update_game_data()
-        for container in self.__page.controls[1].controls[1:]:
-            container.visible = not container is not self.__page.controls[1].controls[index + 1]
-        self.__page.update()
+        match e.control.selected_index:
+            case 0:
+                self.__switcher.content = self.__game_container
+            case 1:
+                self.__switcher.content = self.__database_container
+            case 2:
+                self.__switcher.content = self.__settings_container
+            case 3:
+                self.__switcher.content = self.__about_container
+        self.__switcher.update()
 
-    def __close(self) -> None:
-        self.__game_container.close()
+    async def __close(self, *_: object) -> None:
+        await self.__game_container.close()
         self.__page.window.close()
 
     def __maximize(self) -> None:

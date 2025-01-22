@@ -1,3 +1,4 @@
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -140,45 +141,52 @@ class DatabaseContainer(Column):
     def __init__(self) -> None:
         super().__init__()
         self.expand = True
-        self.visible = False
         self.scroll = ScrollMode.ADAPTIVE
         self.height = 10000
 
-    def update_game_data(self) -> None:
+    def did_mount(self) -> None:
+        if self.page is None:
+            return
+        self.page.run_thread(self.reaload_database)
+
+    def reaload_database(self) -> None:
         with ChessDatabase("chess.db") as database:
-            self.controls = (
-                DataTable(
-                    columns=[
-                        DataColumn(Text("ID"), heading_row_alignment=MainAxisAlignment.CENTER),
-                        DataColumn(Text("White Player"), heading_row_alignment=MainAxisAlignment.CENTER),
-                        DataColumn(Text("Black Player"), heading_row_alignment=MainAxisAlignment.CENTER),
-                        DataColumn(Text("Date"), heading_row_alignment=MainAxisAlignment.CENTER),
-                        DataColumn(Text("Duration"), heading_row_alignment=MainAxisAlignment.CENTER),
-                        DataColumn(Text("Stockfish Skill"), heading_row_alignment=MainAxisAlignment.CENTER),
-                        DataColumn(Text("Result"), heading_row_alignment=MainAxisAlignment.CENTER),
+            game_data = database.get_game_data()
+        table = DataTable(
+            width=10000,
+            sort_column_index=0,
+            data_row_max_height=50,
+            vertical_lines=BorderSide(2, ACCENT_COLOR_1),
+            horizontal_lines=BorderSide(2, ACCENT_COLOR_1),
+            heading_row_color=ACCENT_COLOR_1,
+            heading_text_style=TextStyle(weight=FontWeight.BOLD, color=ACCENT_COLOR_3),
+            columns=[
+                DataColumn(Text("ID"), heading_row_alignment=MainAxisAlignment.CENTER),
+                DataColumn(Text("White Player"), heading_row_alignment=MainAxisAlignment.CENTER),
+                DataColumn(Text("Black Player"), heading_row_alignment=MainAxisAlignment.CENTER),
+                DataColumn(Text("Date"), heading_row_alignment=MainAxisAlignment.CENTER),
+                DataColumn(Text("Duration"), heading_row_alignment=MainAxisAlignment.CENTER),
+                DataColumn(Text("Stockfish Skill"), heading_row_alignment=MainAxisAlignment.CENTER),
+                DataColumn(Text("Result"), heading_row_alignment=MainAxisAlignment.CENTER),
+            ],
+            rows=[],
+        )
+        self.controls = [table]
+        # time.sleep(0.2)  # FIXME
+        if table.rows is None:
+            return
+        for row in game_data:
+            table.rows.append(
+                DataRow(
+                    cells=[
+                        DataCell(Text(str(row[0]))),
+                        DataCell(Text(row[1])),
+                        DataCell(Text(row[2])),
+                        DataCell(Text(row[3])),
+                        DataCell(Text(row[4])),
+                        DataCell(Text(str(row[6]))),
+                        DataCell(Text(row[10])),
                     ],
-                    rows=[
-                        DataRow(
-                            cells=[
-                                DataCell(Text(str(row[0]))),
-                                DataCell(Text(row[1])),
-                                DataCell(Text(row[2])),
-                                DataCell(Text(row[3])),
-                                DataCell(Text(row[4])),
-                                DataCell(Text(str(row[6]))),
-                                DataCell(Text(row[10])),
-                            ],
-                        )
-                        for row in database.get_game_data()
-                    ],
-                    width=10000,
-                    sort_column_index=0,
-                    data_row_max_height=50,
-                    vertical_lines=BorderSide(2, ACCENT_COLOR_1),
-                    horizontal_lines=BorderSide(2, ACCENT_COLOR_1),
-                    heading_row_color=ACCENT_COLOR_1,
-                    heading_text_style=TextStyle(weight=FontWeight.BOLD, color=ACCENT_COLOR_3),
-                ),
+                )
             )
         self.update()
-
