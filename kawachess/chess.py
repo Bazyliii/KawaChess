@@ -1,8 +1,9 @@
 from collections.abc import Callable
 from datetime import datetime
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
-from chess import Board, Move, svg
+from chess import Board, svg
+from chess import Move as Chess_Move
 from chess.engine import Limit, SimpleEngine
 from flet import Column, CrossAxisAlignment, Icons, Image, MainAxisAlignment, Row
 from pytz import BaseTzInfo, timezone
@@ -11,16 +12,16 @@ from kawachess.astemplates import en_passant, kingside_castling, move_with_captu
 from kawachess.colors import ACCENT_COLOR_1, ACCENT_COLOR_2, ACCENT_COLOR_3, ACCENT_COLOR_4, WHITE
 from kawachess.components import Button
 from kawachess.database import ChessDatabase, GameData
-from kawachess.robot import Cartesian, Command, Point, Program, Robot
+from kawachess.robot_async import AsyncRobot, Cartesian, Move, Point, Program, Switch
 from kawachess.vision import OpenCVDetection
 
 TIMEZONE: Final[BaseTzInfo] = timezone("Europe/Warsaw")
 
 
 class GameContainer(Column):
-    def __init__(self, board_size: int, dialog: Callable[[str], None], robot: Robot) -> None:
+    def __init__(self, board_size: int, dialog: Callable[[str], None], robot: AsyncRobot) -> None:
         super().__init__()
-        self.A1: Point = Point("a1", Cartesian(91.362, 554.329, -193.894, -137.238, 179.217, -5.03))
+        self.A1: Point = Point("a1", Cartesian(x=91.362, y=554.329, z=-193.894, o=-137.238, a=179.217, t=-5.03))
         self.A8: Point = self.calculate_point_to_move("a8", 80)
         self.E1: Point = self.calculate_point_to_move("e1", 80)
         self.E8: Point = self.calculate_point_to_move("e8", 80)
@@ -34,9 +35,9 @@ class GameContainer(Column):
         self.C8: Point = self.calculate_point_to_move("c8", 80)
         self.D1: Point = self.calculate_point_to_move("d1", 80)
         self.D8: Point = self.calculate_point_to_move("d8", 80)
-        self.drop: Point = Point("drop", Cartesian(300.362, 448.329, -93.894, -137.238, 179.217, -5.03))
+        self.drop: Point = Point("drop", Cartesian(x=300.362, y=448.329, z=-93.894, o=-137.238, a=179.217, t=-5.03))
         self.dialog: Callable[[str], None] = dialog
-        self.robot: Robot = robot
+        self.robot: AsyncRobot = robot
         self.__skill_level: int
         self.__engine: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
         self.__engine.configure({"Threads": "2", "Hash": "512"})
@@ -73,12 +74,12 @@ class GameContainer(Column):
                 [
                     Button(
                         text="Start game",
-                        on_click=lambda _: self.start_game(),
+                        on_click=self.start_game,
                         icon=Icons.PLAY_ARROW_OUTLINED,
                     ),
                     Button(
                         text="Resign game",
-                        on_click=lambda _: self.resign_game(),
+                        on_click=self.resign_game,
                         icon=Icons.HANDSHAKE_OUTLINED,
                     ),
                 ],
@@ -86,49 +87,34 @@ class GameContainer(Column):
             ),
         ]
 
-    def start_game(self) -> None:
+    async def start_game(self, *_: object) -> None:
         if not self.robot.logged_in:
             self.dialog("Connect to robot first!")
             return
         if self.__game_status:
             return
-        self.robot.add_translation_point(
-            self.A1,
-            self.A8,
-            self.E1,
-            self.E8,
-            self.G1,
-            self.G8,
-            self.H1,
-            self.H8,
-            self.F1,
-            self.F8,
-            self.C1,
-            self.C8,
-            self.D1,
-            self.D8,
-            self.drop,
+        await self.robot.reset_errors()
+        await self.robot.toggle((Switch.MOTOR, True))
+        await self.robot.add_point(
+            self.A1, self.A8, self.E1, self.E8, self.G1, self.G8, self.H1, self.H8, self.F1, self.F8, self.C1, self.C8, self.D1, self.D8, self.drop
         )
+        await self.robot.move(Move.HYBRID, self.drop)
         player_turn: bool = False
-        STARTING_BOARD_FEN = "r1b1kb1r/3pnppp/1Qp1p3/4P3/p1P1B3/P5P1/1P3P1P/2B1R1K1"
         self.board.reset()
-        self.board.set_fen(STARTING_BOARD_FEN)
         self.__engine.configure({"Skill Level": self.__skill_level})
         self.__start_datetime = datetime.now(TIMEZONE)
         self.__game_status = True
         self.__chess_board_svg.src = svg.board(self.board, colors=self.__board_colors)
         self.update()
         self.__pending_game_stockfish_skill_lvl = self.__skill_level
-        self.board.push_uci("e1d1")
-        self.board.push_uci("f7f5")
         while self.__game_status and not self.board.is_game_over():
-            engine_move: Move | None = self.__engine.play(self.board, Limit(time=1.0)).move
+            engine_move: Chess_Move | None = self.__engine.play(self.board, Limit(time=1.0)).move
             if engine_move is None or engine_move not in self.board.legal_moves:
                 continue
 
-            program: Program = self.get_move_program(engine_move)
-            self.robot.load_as_program(program)
-            self.robot.exec_as_program(program)
+            program: Program = await self.get_move_program(engine_move)
+            await self.robot.load_program(program)
+            await self.robot.exec_program(program)
 
             if self.__game_status:
                 self.board.push(engine_move)
@@ -138,7 +124,7 @@ class GameContainer(Column):
             # self.dialog("Player move")
             while player_turn:
                 try:
-                    player_move: Move = Move.from_uci(input("Enter move: "))
+                    player_move: Chess_Move = Chess_Move.from_uci(input("Enter move: "))
                 except ValueError:
                     self.dialog("Invalid move")
                     continue
@@ -150,7 +136,11 @@ class GameContainer(Column):
                 else:
                     self.dialog("Invalid move")
         game_data = GameData(
-            self.board, self.__pending_game_stockfish_skill_lvl, self.__start_datetime, datetime.now(TIMEZONE), ("Stockfish", self.__player_name)
+            self.board,
+            self.__pending_game_stockfish_skill_lvl,
+            self.__start_datetime,
+            datetime.now(TIMEZONE),
+            ("Stockfish", self.__player_name),
         )
         with ChessDatabase("chess.db") as database:
             database.add(game_data)
@@ -159,14 +149,14 @@ class GameContainer(Column):
             self.dialog("Game over!")
         self.update()
 
-    def get_move_program(self, move: Move, speed: int = 5, height: int = 80) -> Program:
+    async def get_move_program(self, move: Chess_Move, speed: int = 5, height: int = 80) -> Program:
         from_point: Point = self.calculate_point_to_move(move.uci()[0:2], height)
         to_point: Point = self.calculate_point_to_move(move.uci()[2:4], height)
-        self.robot.add_translation_point(from_point, to_point)
+        await self.robot.add_point(from_point, to_point)
         if self.board.is_capture(move):
             if self.board.is_en_passant(move):
                 take_point: Point = self.calculate_point_to_move(move.uci()[2] + move.uci()[1], height)
-                self.robot.add_translation_point(take_point)
+                await self.robot.add_point(take_point)
                 return en_passant(from_point, to_point, take_point, self.drop, speed, height)
             return move_with_capture(from_point, to_point, self.drop, speed, height)
         if self.board.is_kingside_castling(move):
@@ -175,17 +165,18 @@ class GameContainer(Column):
             return queenside_castling(self.drop, self.board.turn, speed, height)
         return move_without_capture(from_point, to_point, self.drop, speed, height)
 
-    def resign_game(self) -> None:
+    async def resign_game(self, *_: object) -> None:
         if not self.__game_status:
             return
-        self.robot.send(Command.ABORT)
+        await self.robot.abort_motion()
         self.__game_status = False
         self.dialog("Player resigned!")
 
-    def close(self) -> None:
+    async def close(self) -> None:
         if self.__game_status:
             self.__game_status = False
-            self.robot.send(Command.ABORT)
+            await self.robot.abort_motion()
+        await self.robot.toggle((Switch.MOTOR, False))
         self.__opencv_detection.close()
         self.__engine.quit()
 
