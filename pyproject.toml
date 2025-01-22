@@ -7,12 +7,14 @@ requires = ["setuptools"]
 [project]
 authors = [{name = "Jarosław Wierzbowski", email = "jaroslawierzbowski2001@gmail.com"}]
 dependencies = [
-  "chess >= 1.11.1",
-  "pytz >= 2024.2",
-  "flet >= 0.25.2",
+  # Chess Package
+  "chess >= 1.11.1", # Timezone Package
+  "pytz >= 2024.2", # Frontend Package
+  "flet >= 0.25.2", # Computer Vision Packages
   "opencv-python >= 4.10.0.84",
-  "ruff >= 0.8.4",
-  "winaccent >= 2.0.1"
+  "vidgear >= 0.3.3", # Code Linter Package
+  "ruff >= 0.9.1", # Windows Accent Package
+  "winaccent >= 2.0.1",
 ]
 dynamic = ["version"]
 license = {text = "MIT License"}
@@ -36,8 +38,6 @@ line-length = 160
 target-version = "py313"
 
 [tool.ruff.lint]
-preview = true
-select = ["ALL"]
 ignore = [
   "W191",
   "FURB101",
@@ -51,15 +51,19 @@ ignore = [
   "D107",
   "D101",
   "D105",
+  "D106",
   "D103",
   "D104",
   "D203",
   "D212",
+  "COM812",
 ]
+preview = true
+select = ["ALL"]
 
 fixable = ["ALL"]
 
-unfixable = ["B"]
+unfixable = ["B", "T201", "T203", "F401"]
 
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
