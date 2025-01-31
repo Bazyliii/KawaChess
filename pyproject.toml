@@ -7,14 +7,14 @@ requires = ["setuptools"]
 [project]
 authors = [{name = "Jarosław Wierzbowski", email = "jaroslawierzbowski2001@gmail.com"}]
 dependencies = [
-  # Chess Package
-  "chess >= 1.11.1", # Timezone Package
-  "pytz >= 2024.2", # Frontend Package
-  "flet >= 0.25.2", # Computer Vision Packages
-  "opencv-python >= 4.10.0.84",
-  "vidgear >= 0.3.3", # Code Linter Package
-  "ruff >= 0.9.1", # Windows Accent Package
+  "chess >= 1.11.1",
+  "pytz >= 2025.1",
+  "flet >= 0.26.0",
+  "opencv-python >= 4.11.0.84",
+  "vidgear >= 0.3.3",
+  "ruff >= 0.9.4",
   "winaccent >= 2.0.1",
+  "pololu-maestro @git+https://github.com/austin-bowen/pololu-maestro.git",
 ]
 dynamic = ["version"]
 license = {text = "MIT License"}

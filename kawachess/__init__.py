@@ -1,22 +1,21 @@
 __all__: list[str] = [
-    "AsyncRobot",
-    "AsyncRobot",
+    "POLOLU_MINI_MAESTRO_NOT_FOUND",
+    "POSITION_OUT_OF_RANGE",
     "Button",
     "Cartesian",
     "ChessDatabase",
     "CloseButton",
     "DatabaseContainer",
-    "Flag",
     "GameContainer",
     "GameData",
+    "Gripper",
     "MaximizeButton",
     "MinimizeButton",
-    "Move",
     "OpenCVDetection",
     "Point",
     "Program",
+    "Robot",
     "Status",
-    "Switch",
     "en_passant",
     "kingside_castling",
     "move_with_capture",
@@ -45,15 +44,19 @@ from kawachess.database import (
     DatabaseContainer,
     GameData,
 )
-from kawachess.robot_async import (
-    AsyncRobot,
+from kawachess.error_msg import (
+    POLOLU_MINI_MAESTRO_NOT_FOUND,
+    POSITION_OUT_OF_RANGE,
+)
+from kawachess.gripper import (
+    Gripper,
+)
+from kawachess.robot import (
     Cartesian,
-    Flag,
-    Move,
     Point,
     Program,
+    Robot,
     Status,
-    Switch,
 )
 from kawachess.vision import (
     OpenCVDetection,
