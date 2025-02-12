@@ -1,19 +1,59 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
-from ipaddress import IPv4Address
 from re import Pattern, findall, split, sub
 from re import compile as regex_compile
 from selectors import EVENT_READ, SelectSelector
 from socket import create_connection, socket
 from time import sleep
-from typing import Final, NamedTuple
-from warnings import deprecated, warn
-
-warn("kawachess.robot is deprecated. Use kawachess.robot_async instead.", DeprecationWarning, stacklevel=2)
 
 
-@deprecated("Use AsyncRobot instead!")
+class Program:
+    def __init__(self, program: str) -> None:
+        program_data: bytes = program.encode("ascii")
+        self.split: list[bytes] = [program_data[i : i + 492] for i in range(0, len(program_data), 492)]
+        self.name: str = findall(r"\.PROGRAM\s+([^\s]+)", program)[0]
+
+
+@dataclass(frozen=True, repr=False, eq=False)
+class Flag:
+    IAC: bytes = bytes([255])  # Interpret As Command
+    DONT: bytes = bytes([254])  # Don't
+    DO: bytes = bytes([253])  # Do
+    WONT: bytes = bytes([252])  # Won't
+    WILL: bytes = bytes([251])  # Will
+    SB: bytes = bytes([250])  # Subnegotiation
+    GA: bytes = bytes([249])  # Go Ahead
+    EL: bytes = bytes([248])  # Erase Line
+    EC: bytes = bytes([247])  # Erase Character
+    AYT: bytes = bytes([246])  # Are You There
+    AO: bytes = bytes([245])  # Abort Output
+    IP: bytes = bytes([244])  # Interrupt Process
+    BRK: bytes = bytes([243])  # Break
+    DM: bytes = bytes([242])  # Data Mark
+    NOP: bytes = bytes([241])  # No Operation
+    SE: bytes = bytes([240])  # End of Subnegotiation
+    SUB: bytes = bytes([26])  # Substitute
+    TTYPE: bytes = bytes([24])  # Terminal Type
+    ETB: bytes = bytes([23])  # End of Transmission Block
+    STX: bytes = bytes([2])  # Start of Transmission Block
+    ECHO: bytes = bytes([1])  # Echo
+    NULL: bytes = bytes([0])  # Null
+
+
+class Switch(Enum):
+    MOTOR = "ZPOW"
+    CONTINOUS_PATH = "CP"
+    REPEAT_ONCE = "REP_ONCE"
+    STEP_ONCE = "STP_ONCE"
+
+
+class Move(Enum):
+    LINEAR = "DO LMOVE"
+    HYBRID = "DO HMOVE"
+    JOINT = "DO JMOVE"
+
+
 class Status(Enum):
     """
     Robot status.
@@ -42,69 +82,8 @@ class Status(Enum):
     STEP_ONCE = auto()
 
 
-@deprecated("Use AsyncRobot instead!")
-class CommandType(Enum):
-    CONFIG = auto()
-    MOVEMENT = auto()
-
-
-@deprecated("Use AsyncRobot instead!")
-class Command(Enum):
-    RESET = ("ERESET", CommandType.CONFIG)
-    ABORT = ("ABORT", CommandType.CONFIG)
-    MOTOR_ON = ("ZPOW ON", CommandType.CONFIG)
-    MOTOR_OFF = ("ZPOW OFF", CommandType.CONFIG)
-    CONTINUOUS_PATH_ON = ("CP ON", CommandType.CONFIG)
-    CONTINUOUS_PATH_OFF = ("CP OFF", CommandType.CONFIG)
-    REPEAT_ONCE_OFF = ("REP_ONCE OFF", CommandType.CONFIG)
-    REPEAT_ONCE_ON = ("REP_ONCE ON", CommandType.CONFIG)
-    STEP_ONCE_OFF = ("STP_ONCE OFF", CommandType.CONFIG)
-    STEP_ONCE_ON = ("STP_ONCE ON", CommandType.CONFIG)
-    HOME = ("DO HOME", CommandType.MOVEMENT)
-    LINEAR_MOVE = ("DO LMOVE", CommandType.MOVEMENT)
-    JOINT_MOVE = ("DO JMOVE", CommandType.MOVEMENT)
-    HYBRID_MOVE = ("DO HMOVE", CommandType.MOVEMENT)
-    PICKUP = ("DO LDEPART 80", CommandType.MOVEMENT)
-    PUTDOWN = ("DO LDEPART -80", CommandType.MOVEMENT)
-
-    @property
-    def val(self) -> str:
-        return self.value[0]
-
-    @property
-    def type(self) -> CommandType:
-        return CommandType(self.value[1])
-
-
-@deprecated("Use AsyncRobot instead!")
-@dataclass(frozen=True)
-class Flag:
-    IAC: bytes = bytes([255])  # Interpret As Command
-    DONT: bytes = bytes([254])  # Don't
-    DO: bytes = bytes([253])  # Do
-    WONT: bytes = bytes([252])  # Won't
-    WILL: bytes = bytes([251])  # Will
-    SB: bytes = bytes([250])  # Subnegotiation
-    GA: bytes = bytes([249])  # Go Ahead
-    EL: bytes = bytes([248])  # Erase Line
-    EC: bytes = bytes([247])  # Erase Character
-    AYT: bytes = bytes([246])  # Are You There
-    AO: bytes = bytes([245])  # Abort Output
-    IP: bytes = bytes([244])  # Interrupt Process
-    BRK: bytes = bytes([243])  # Break
-    DM: bytes = bytes([242])  # Data Mark
-    NOP: bytes = bytes([241])  # No Operation
-    SE: bytes = bytes([240])  # End of Subnegotiation
-    SUB: bytes = bytes([26])  # Substitute
-    TTYPE: bytes = bytes([24])  # Terminal Type
-    ETB: bytes = bytes([23])  # End of Transmission Block
-    STX: bytes = bytes([2])  # Start of Transmission Block
-    ECHO: bytes = bytes([1])  # Echo
-    NULL: bytes = bytes([0])  # Null
-
-
-@deprecated("Use AsyncRobot instead!")
-class Cartesian(NamedTuple):
+@dataclass(kw_only=True)
+class Cartesian:
     x: float = 0.0
     y: float = 0.0
     z: float = 0.0
@@ -113,43 +92,33 @@ class Cartesian(NamedTuple):
     t: float = 0.0
 
 
-@deprecated("Use AsyncRobot instead!")
 class Point:
     def __init__(self, name: str, point: Cartesian) -> None:
         self.name: str = name
         self.__x: float = round(point.x, 3)
         self.__y: float = round(point.y, 3)
         self.__z: float = round(point.z, 3)
-        self.__o: float = round(point.o, 3)
-        self.__a: float = round(point.a, 3)
-        self.__t: float = round(point.t, 3)
+        self.__o: float = round(point.o, 3)  # Rotation around the Z axis
+        self.__a: float = round(point.a, 3)  # Rotation around the Y axis
+        self.__t: float = round(point.t, 3)  # Rotation around the rotated Z axis
         self.in_memory: bool = False
 
     def __str__(self) -> str:
         return f"{self.__x},{self.__y},{self.__z},{self.__o},{self.__a},{self.__t}"
 
-    @deprecated("Use AsyncRobot instead")
     def shift(self, name: str, shift: Cartesian) -> "Point":
-        return Point(name, Cartesian(self.__x + shift.x, self.__y + shift.y, self.__z + shift.z, self.__o + shift.o, self.__a + shift.a, self.__t + shift.t))
+        return Point(
+            name, Cartesian(x=self.__x + shift.x, y=self.__y + shift.y, z=self.__z + shift.z, o=self.__o + shift.o, a=self.__a + shift.a, t=self.__t + shift.t)
+        )
 
 
-@deprecated("Use AsyncRobot instead!")
-class Program:
-    def __init__(self, program: str) -> None:
-        program_data: bytes = program.encode("ascii")
-        self.split: list[bytes] = [program_data[i : i + 492] for i in range(0, len(program_data), 492)]
-        self.name: str = findall(r"\.PROGRAM\s+([^\s]+)", program_data.decode("ascii"))[0]
-
-
-@deprecated("Use AsyncRobot instead!", stacklevel=4)
 class Robot:
-    SPLIT_PATTERN: Final[Pattern[str]] = regex_compile(r" ON| OFF")
-    REPLACE_PATTERN: Final[Pattern[str]] = regex_compile(r"[ \n*\r]")
-
-    def __init__(self, ip: IPv4Address, port: int, show_dialog: Callable[[str], None] = print) -> None:
+    def __init__(self, ip: str, port: int, show_dialog: Callable[[str], None] = print) -> None:
+        self.__split_pattern: Pattern[str] = regex_compile(r" ON| OFF")
+        self.__replace_pattern: Pattern[str] = regex_compile(r"[ \n*\r]")
         self.__telnet_selector: type = SelectSelector
         self.__dialog: Callable[[str], None] = show_dialog
-        self.__ip: str = ip.exploded
+        self.__ip: str = ip
         self.__port: int = port
         self.__raw_queue: bytes = b""
         self.__raw_queue_index: int = 0
@@ -161,8 +130,7 @@ class Robot:
         self.__socket: socket = socket()
         self.logged_in: bool = False
 
-    @deprecated("Use AsyncRobot instead")
-    def login(self, username: str = "as") -> None:
+    def connect(self, username: str = "as") -> None:
         if self.logged_in:
             return
         try:
@@ -170,20 +138,19 @@ class Robot:
         except ConnectionRefusedError:
             self.__dialog("Connection refused!\nCheck IP and port!")
             return
-        self.read_until_match("login:")
+        self.read_until(b"login:")
         self.__write(username)
-        self.read_until_match(">")
+        self.read_until(b">")
         self.logged_in = True
         self.__initialize()
         self.__dialog("Connected and logged in!")
         self.__clear_queue()
 
-    @deprecated("Use AsyncRobot instead")
     def status(self) -> dict[Status, bool]:
         self.__write("SWITCH")
-        message: str = self.read_until_match(["Press SPACE key to continue"]).split("SWITCH\r")[1]
-        raw_data: list[str] = [sub(self.REPLACE_PATTERN, "", s) for s in split(pattern=self.SPLIT_PATTERN, string=message)][:-1]
-        status_data: dict[str, bool] = {key: value == " ON" for key, value in zip(raw_data, findall(self.SPLIT_PATTERN, string=message), strict=True)}
+        message: str = self.read_until(b"Press SPACE key to continue").split("SWITCH\r")[1]
+        raw_data: list[str] = [sub(self.__replace_pattern, "", s) for s in split(pattern=self.__split_pattern, string=message)][:-1]
+        status_data: dict[str, bool] = {key: value == " ON" for key, value in zip(raw_data, findall(self.__split_pattern, string=message), strict=True)}
         self.__write("\n")
         self.__clear_queue()
         return {
@@ -199,29 +166,7 @@ class Robot:
             Status.STEP_ONCE: status_data["STP_ONCE"],
         }
 
-    @deprecated("Use AsyncRobot instead")
-    def send(self, command: Command, arg: Point | None = None) -> None:
-        if not self.logged_in:
-            return
-        match command.type:
-            case CommandType.CONFIG:
-                self.__write(command.val)
-                self.read_until_match([">", "Program aborted."])
-            case CommandType.MOVEMENT:
-                if arg is None:
-                    self.__write(f"{command.val}")
-                elif type(arg) is Point:
-                    if not arg.in_memory:
-                        self.add_translation_point(arg)
-                    self.__write(f"{command.val} {arg.name}")
-                state: str = self.read_until_match(["DO motion completed.", "suddenly changed.", "Destination is out of motion range."])
-                if "suddenly changed." in state or "Destination is out of motion range." in state:
-                    raise RuntimeError(state)
-                sleep(0.3)
-        sleep(0.1)
-
-    @deprecated("Use AsyncRobot instead")
-    def close(self) -> None:
+    def disconnect(self) -> None:
         self.__raw_queue: bytes = b""
         self.__raw_queue_index: int = 0
         self.__cooked_queue: bytes = b""
@@ -235,20 +180,14 @@ class Robot:
             self.__socket.close()
             self.logged_in = False
 
-    @deprecated("Use AsyncRobot instead")
-    def read_until_match(self, matches: list[bytes | str] | bytes | str) -> str:
-        matches_encoded: list[bytes] = []
-        if isinstance(matches, list):
-            matches_encoded = [match.encode("ascii") if isinstance(match, str) else match for match in matches]
-        else:
-            matches_encoded = [matches.encode("ascii") if isinstance(matches, str) else matches]
+    def read_until(self, *match: bytes) -> str:
         self.__raw_queue_process()
         with self.__telnet_selector() as selector:
             selector.register(self.__socket_descriptor(), EVENT_READ)
             while not self.__end_of_file and selector.select():
                 self.__raw_queue_fill()
                 self.__raw_queue_process()
-                for match_encoded in matches_encoded:
+                for match_encoded in match:
                     i: int = self.__cooked_queue.find(match_encoded)
                     if i >= 0:
                         i += len(match_encoded)
@@ -257,45 +196,76 @@ class Robot:
                         return buffer.decode("ascii")
         raise EOFError
 
-    @deprecated("Use AsyncRobot instead")
-    def load_as_program(self, program: Program) -> None:
+    def load_program(self, program: Program) -> None:
         self.__write("KILL\n1\n")
         self.__write(f"LOAD {program.name}")
-        self.read_until_match(".as")
+        self.read_until(b".as")
         self.__write(Flag.STX + b"A    0" + Flag.ETB)
         for chunk in program.split:
             self.__write(Flag.STX + b"C    0" + chunk + Flag.ETB)
-            self.read_until_match(Flag.ETB)
+            self.read_until(Flag.ETB)
         self.__write(Flag.STX + b"C    0" + Flag.SUB + Flag.ETB + b"\n")
-        self.read_until_match(b"E" + Flag.ETB)
+        self.read_until(Flag.ETB)
         self.__write(Flag.STX + b"E    0" + Flag.ETB)
-        self.read_until_match(">")
+        self.read_until(b">")
 
-    @deprecated("Use AsyncRobot instead")
-    def exec_as_program(self, program: Program) -> None:
+    def exec_program(self, program: Program) -> None:
         self.__write(f"EXE {program.name}")
-        state: str = self.read_until_match(["Program completed.", "Program aborted.", "Program held."])
+        state: str = self.read_until(b"Program completed.", b"Program aborted.", b"Program held.")
         if "Program held." in state or "Program aborted." in state:
             pass
 
-    @deprecated("Use AsyncRobot instead")
-    def add_translation_point(self, *points: Point) -> None:
+    def add_point(self, *points: Point) -> None:
         for point in points:
             if point.in_memory:
                 continue
             self.__write(f"POINT {point.name} = TRANS({point!s})\n")
-            self.read_until_match("Change?")
+            self.read_until(b"Change?")
+            self.__write("\n")
             point.in_memory = True
 
-    @deprecated("Use AsyncRobot instead")
-    def remove_translation_point(self, *points: Point) -> None:
+    def remove_point(self, *points: Point) -> None:
         self.__write("KILL\n1\n")
         for point in points:
             if not point.in_memory:
                 continue
             self.__write(f"DELETE/L {point.name}\n1\n")
-            self.read_until_match(">")
+            self.read_until(b">")
             point.in_memory = False
+
+    def reset_errors(self) -> None:
+        self.__write("ERESET\r\n")
+        self.read_until(b"Cleared error state.", b">")
+
+    def move(self, move_type: Move, point: Point) -> None:
+        if not point.in_memory:
+            self.add_point(point)
+        self.__write(f"{move_type.value} {point.name}\r\n")
+        state: str = self.read_until(
+            b"DO motion completed.",
+            b"suddenly changed.",
+            b"Destination is out of motion range.",
+            b"beyond motion range.",
+            b"DO motion held.",
+            b"Program aborted.",
+        )
+        if "beyond motion range." in state:
+            raise RuntimeError(state)
+        sleep(0.4)
+
+    def toggle(self, *switch: tuple[Switch, bool]) -> None:
+        for sw in switch:
+            self.__write(f"{sw[0].value} {'ON' if sw[1] else 'OFF'}\r\n")
+            self.read_until(b"\r\n>")
+
+    def abort_motion(self) -> None:
+        self.__write("ABORT\r\n")
+        self.read_until(b"DO motion held.", b"Program aborted.")
+
+    def home(self) -> None:
+        self.__write("DO HOME\r\n")
+        self.read_until(b"DO motion completed.", b"Program aborted.")
+        sleep(0.4)
 
     def __clear_queue(self) -> None:
         self.__raw_queue_fill()
@@ -385,20 +355,23 @@ class Robot:
             ]
         ):
             self.__dialog("Robot is not ready for operation!")
+            raise RuntimeError
             return
 
         if current_status[Status.ERROR]:
-            self.send(Command.RESET)
+            self.reset_errors()
         if current_status[Status.CONTINUOUS_PATH]:
-            self.send(Command.CONTINUOUS_PATH_OFF)
+            self.toggle((Switch.CONTINOUS_PATH, False))
         if current_status[Status.REPEAT_ONCE]:
-            self.send(Command.REPEAT_ONCE_ON)
+            self.toggle((Switch.REPEAT_ONCE, True))
         if current_status[Status.STEP_ONCE]:
-            self.send(Command.STEP_ONCE_OFF)
+            self.toggle((Switch.STEP_ONCE, False))
         if not current_status[Status.MOTOR_POWERED]:
-            self.send(Command.MOTOR_ON)
+            self.toggle((Switch.MOTOR, True))
+            sleep(0.1)
             if not self.status()[Status.MOTOR_POWERED]:
                 self.__dialog("Motor cannot be powered on!")
+                raise RuntimeError
 
     def __write(self, buffer: str | bytes, end: bytes = b"\r\n") -> None:
         buffer_encoded: bytes = (bytes(buffer) if isinstance(buffer, bytes | bytearray | memoryview) else buffer.encode("ascii")).replace(

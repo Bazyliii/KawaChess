@@ -1,6 +1,15 @@
 __all__: list[str] = [
+    "ACCENT_COLOR_1",
+    "ACCENT_COLOR_2",
+    "ACCENT_COLOR_3",
+    "ACCENT_COLOR_4",
+    "BLUE",
+    "GREEN",
+    "GREY",
+    "MAIN_COLOR",
     "POLOLU_MINI_MAESTRO_NOT_FOUND",
-    "POSITION_OUT_OF_RANGE",
+    "RED",
+    "WHITE",
     "Button",
     "Cartesian",
     "ChessDatabase",
@@ -39,17 +48,27 @@ from kawachess.components import (
     MaximizeButton,
     MinimizeButton,
 )
+from kawachess.constants import (
+    ACCENT_COLOR_1,
+    ACCENT_COLOR_2,
+    ACCENT_COLOR_3,
+    ACCENT_COLOR_4,
+    BLUE,
+    GREEN,
+    GREY,
+    MAIN_COLOR,
+    POLOLU_MINI_MAESTRO_NOT_FOUND,
+    RED,
+    WHITE,
+)
 from kawachess.database import (
     ChessDatabase,
     DatabaseContainer,
     GameData,
 )
-from kawachess.error_msg import (
-    POLOLU_MINI_MAESTRO_NOT_FOUND,
-    POSITION_OUT_OF_RANGE,
-)
 from kawachess.gripper import (
     Gripper,
+    State
 )
 from kawachess.robot import (
     Cartesian,

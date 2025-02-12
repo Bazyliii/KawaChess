@@ -1,15 +1,14 @@
-import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from sqlite3 import Connection, Cursor, connect
-from types import TracebackType
+from typing import Self
 
 from chess import Board
 from chess.pgn import Game
 from flet import BorderSide, Column, DataCell, DataColumn, DataRow, DataTable, FontWeight, MainAxisAlignment, ScrollMode, Text, TextStyle
 
-from kawachess.colors import ACCENT_COLOR_1, ACCENT_COLOR_3
+from kawachess.constants import ACCENT_COLOR_1, ACCENT_COLOR_3
 
 
 @dataclass
@@ -99,11 +98,11 @@ class ChessDatabase:
             self.connection: Connection = connect(self.name)
             self.cursor: Cursor = self.connection.cursor()
 
-    def __exit__(self, exc_type: BaseException | None, exc_value: BaseException | None, exc_traceback: TracebackType | None) -> None:  # noqa: PYI036
+    def __exit__(self, *_: object) -> None:
         if self.connection:
             self.connection.close()
 
-    def __enter__(self) -> "ChessDatabase":
+    def __enter__(self) -> Self:
         return self
 
     def add(self, game_data: GameData) -> None:
@@ -172,7 +171,6 @@ class DatabaseContainer(Column):
             rows=[],
         )
         self.controls = [table]
-        # time.sleep(0.2)  # FIXME
         if table.rows is None:
             return
         for row in game_data:

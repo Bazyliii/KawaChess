@@ -5,23 +5,24 @@ from typing import TYPE_CHECKING, Final
 from chess import Board, svg
 from chess import Move as Chess_Move
 from chess.engine import Limit, SimpleEngine
-from flet import Column, CrossAxisAlignment, Icons, Image, MainAxisAlignment, Row
+from flet import Column, Control, CrossAxisAlignment, Icons, Image, MainAxisAlignment, Row
 from pytz import BaseTzInfo, timezone
-
+from time import sleep
 from kawachess.astemplates import en_passant, kingside_castling, move_with_capture, move_without_capture, queenside_castling
-from kawachess.colors import ACCENT_COLOR_1, ACCENT_COLOR_2, ACCENT_COLOR_3, ACCENT_COLOR_4, WHITE
 from kawachess.components import Button
+from kawachess.constants import ACCENT_COLOR_1, ACCENT_COLOR_2, ACCENT_COLOR_3, ACCENT_COLOR_4, WHITE
 from kawachess.database import ChessDatabase, GameData
-from kawachess.robot_async import AsyncRobot, Cartesian, Move, Point, Program, Switch
+from kawachess.robot import Cartesian, Move, Point, Program, Robot, Switch
 from kawachess.vision import OpenCVDetection
+from kawachess.gripper import State, Gripper
 
 TIMEZONE: Final[BaseTzInfo] = timezone("Europe/Warsaw")
 
 
 class GameContainer(Column):
-    def __init__(self, board_size: int, dialog: Callable[[str], None], robot: AsyncRobot) -> None:
+    def __init__(self, board_size: int, dialog: Callable[[str], None], robot: Robot) -> None:
         super().__init__()
-        self.A1: Point = Point("a1", Cartesian(x=91.362, y=554.329, z=-193.894, o=-137.238, a=179.217, t=-5.03))
+        self.A1: Point = Point("a1", Cartesian(x=134.255, y=554.503, z=-201.167, o=-175.344, a=179.571, t=-86.117))
         self.A8: Point = self.calculate_point_to_move("a8", 80)
         self.E1: Point = self.calculate_point_to_move("e1", 80)
         self.E8: Point = self.calculate_point_to_move("e8", 80)
@@ -35,9 +36,10 @@ class GameContainer(Column):
         self.C8: Point = self.calculate_point_to_move("c8", 80)
         self.D1: Point = self.calculate_point_to_move("d1", 80)
         self.D8: Point = self.calculate_point_to_move("d8", 80)
-        self.drop: Point = Point("drop", Cartesian(x=300.362, y=448.329, z=-93.894, o=-137.238, a=179.217, t=-5.03))
+        self.drop: Point = Point("drop", Cartesian(x=332.127, y=275.956, z=-116.837, o=-175.344, a=179.571, t=-86.117))
         self.dialog: Callable[[str], None] = dialog
-        self.robot: AsyncRobot = robot
+        self.robot: Robot = robot
+        self.gripper: Gripper = Gripper(dialog=dialog)
         self.__skill_level: int
         self.__engine: SimpleEngine = SimpleEngine.popen_uci(r"stockfish\stockfish-windows-x86-64-avx2.exe")
         self.__engine.configure({"Threads": "2", "Hash": "512"})
@@ -62,6 +64,9 @@ class GameContainer(Column):
         self.horizontal_alignment = CrossAxisAlignment.CENTER
         self.visible = True
         self.spacing = 50
+        self.__is_mounted = False
+        self.__start_button = Button(text="Start game", on_click=self.start_game, icon=Icons.PLAY_ARROW_OUTLINED, disabled=False)
+        self.__resign_button = Button(text="Resign game", on_click=self.resign_game, icon=Icons.HANDSHAKE_OUTLINED, disabled=True)
         self.controls = [
             Row(
                 [
@@ -72,54 +77,44 @@ class GameContainer(Column):
             ),
             Row(
                 [
-                    Button(
-                        text="Start game",
-                        on_click=self.start_game,
-                        icon=Icons.PLAY_ARROW_OUTLINED,
-                    ),
-                    Button(
-                        text="Resign game",
-                        on_click=self.resign_game,
-                        icon=Icons.HANDSHAKE_OUTLINED,
-                    ),
+                    self.__start_button,
+                    self.__resign_button,
                 ],
                 alignment=MainAxisAlignment.CENTER,
             ),
         ]
 
-    async def start_game(self, *_: object) -> None:
+    def start_game(self, *_: object) -> None:
         if not self.robot.logged_in:
             self.dialog("Connect to robot first!")
             return
-        if self.__game_status:
-            return
-        await self.robot.reset_errors()
-        await self.robot.toggle((Switch.MOTOR, True))
-        await self.robot.add_point(
+        self.__start_button.disabled = True
+        self.__resign_button.disabled = False
+        self.__start_button.update()
+        self.__resign_button.update()
+        self.__game_status = True
+        self.robot.add_point(
             self.A1, self.A8, self.E1, self.E8, self.G1, self.G8, self.H1, self.H8, self.F1, self.F8, self.C1, self.C8, self.D1, self.D8, self.drop
         )
-        await self.robot.move(Move.HYBRID, self.drop)
+        # self.robot.move(Move.HYBRID, self.drop)
         player_turn: bool = False
         self.board.reset()
         self.__engine.configure({"Skill Level": self.__skill_level})
         self.__start_datetime = datetime.now(TIMEZONE)
-        self.__game_status = True
         self.__chess_board_svg.src = svg.board(self.board, colors=self.__board_colors)
-        self.update()
+        self.update_when_mounted(self.__chess_board_svg)
         self.__pending_game_stockfish_skill_lvl = self.__skill_level
         while self.__game_status and not self.board.is_game_over():
             engine_move: Chess_Move | None = self.__engine.play(self.board, Limit(time=1.0)).move
             if engine_move is None or engine_move not in self.board.legal_moves:
                 continue
 
-            program: Program = await self.get_move_program(engine_move)
-            await self.robot.load_program(program)
-            await self.robot.exec_program(program)
+            self.make_move(engine_move)
 
             if self.__game_status:
                 self.board.push(engine_move)
                 self.__chess_board_svg.src = svg.board(self.board, colors=self.__board_colors, lastmove=engine_move)
-            self.update()
+            self.update_when_mounted(self.__chess_board_svg)
             player_turn = False
             # self.dialog("Player move")
             while player_turn:
@@ -145,45 +140,74 @@ class GameContainer(Column):
         with ChessDatabase("chess.db") as database:
             database.add(game_data)
         self.__game_status = False
+        self.__start_button.disabled = False
+        self.__resign_button.disabled = True
+        self.__start_button.update()
+        self.__resign_button.update()
         if self.board.is_game_over():
             self.dialog("Game over!")
-        self.update()
+        self.update_when_mounted(self.__chess_board_svg)
 
-    async def get_move_program(self, move: Chess_Move, speed: int = 5, height: int = 80) -> Program:
+    def make_move(self, move: Chess_Move, speed: int = 10, height: int = 80) -> None:
         from_point: Point = self.calculate_point_to_move(move.uci()[0:2], height)
         to_point: Point = self.calculate_point_to_move(move.uci()[2:4], height)
-        await self.robot.add_point(from_point, to_point)
+        self.robot.add_point(from_point, to_point)
         if self.board.is_capture(move):
             if self.board.is_en_passant(move):
                 take_point: Point = self.calculate_point_to_move(move.uci()[2] + move.uci()[1], height)
-                await self.robot.add_point(take_point)
-                return en_passant(from_point, to_point, take_point, self.drop, speed, height)
-            return move_with_capture(from_point, to_point, self.drop, speed, height)
+                self.robot.add_point(take_point)
+                self.execute_task(en_passant(from_point, to_point, take_point, self.drop, speed, height))
+                return
+            self.execute_task(move_with_capture(from_point, to_point, self.drop, speed, height))
+            return
         if self.board.is_kingside_castling(move):
-            return kingside_castling(self.drop, self.board.turn, speed, height)
+            self.execute_task(kingside_castling(self.drop, self.board.turn, speed, height))
+            return
         if self.board.is_queenside_castling(move):
-            return queenside_castling(self.drop, self.board.turn, speed, height)
-        return move_without_capture(from_point, to_point, self.drop, speed, height)
+            self.execute_task(queenside_castling(self.drop, self.board.turn, speed, height))
+            return
+        self.execute_task(move_without_capture(from_point, to_point, self.drop, speed, height))
 
-    async def resign_game(self, *_: object) -> None:
+    def execute_task(self, tasks: tuple[Program | State, ...]) -> None:
+        for task in tasks:
+            if type(task) is State:
+                self.gripper.control(task)
+            elif type(task) is Program:
+                self.robot.load_program(task)
+                self.robot.exec_program(task)
+
+    def resign_game(self, *_: object) -> None:
         if not self.__game_status:
             return
-        await self.robot.abort_motion()
+        # self.robot.abort_motion()
         self.__game_status = False
+        self.__resign_button.disabled = True
+        self.__start_button.disabled = False
+        self.__resign_button.update()
+        self.__start_button.update()
         self.dialog("Player resigned!")
 
-    async def close(self) -> None:
+    def close(self) -> None:
         if self.__game_status:
             self.__game_status = False
-            await self.robot.abort_motion()
-        await self.robot.toggle((Switch.MOTOR, False))
+            self.robot.abort_motion()
         self.__opencv_detection.close()
         self.__engine.quit()
 
+    def did_mount(self) -> None:
+        self.__is_mounted = True
+
+    def will_unmount(self) -> None:
+        self.__is_mounted = False
+
+    def update_when_mounted(self, control: Control) -> None:
+        if self.__is_mounted:
+            control.update()
+
     def calculate_point_to_move(self, algebraic_move: str, z: float = 0.0) -> Point:
-        x: int = ord(algebraic_move[0]) - ord("a")
+        x: int = ord(algebraic_move[0].lower()) - ord("a")
         y: int = int(algebraic_move[1]) - 1
-        return self.A1.shift(algebraic_move, Cartesian(x=x * -30, y=y * -30, z=z))
+        return self.A1.shift(algebraic_move, Cartesian(x=x * -37.3, y=y * -37.3, z=z))
 
     @property
     def player_name(self) -> str:

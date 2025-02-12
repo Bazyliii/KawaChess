@@ -1,13 +1,13 @@
 import asyncio
 from asyncio import StreamReader, StreamWriter, open_connection, sleep
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
-from re import Pattern, findall, split, sub
+from re import Pattern, S, findall, split, sub
 from re import compile as regex_compile
 from typing import TYPE_CHECKING, Final, Self
 
 if TYPE_CHECKING:
-    from collections.abc import Coroutine
     from re import Pattern
 
 
@@ -15,7 +15,7 @@ class Program:
     def __init__(self, program: str) -> None:
         program_data: bytes = program.encode("ascii")
         self.split: list[bytes] = [program_data[i : i + 492] for i in range(0, len(program_data), 492)]
-        self.name: str = findall(r"\.PROGRAM\s+([^\s]+)", program_data.decode("ascii"))[0]
+        self.name: str = findall(r"\.PROGRAM\s+([^\s]+)", program)[0]
 
 
 @dataclass(frozen=True, repr=False, eq=False)
@@ -116,12 +116,15 @@ class Point:
 
 
 class AsyncRobot:
-    def __init__(self, ip: str, port: int) -> None:
-        self.__connection: Coroutine = open_connection(ip, port)
+    def __init__(self, ip: str, port: int, dialog: Callable[[str], None] = print) -> None:
+        self.__ip: str = ip
+        self.__port: int = port
         self.__reader: StreamReader
         self.__writer: StreamWriter
         self.__split_pattern: Final[Pattern[str]] = regex_compile(r" ON| OFF")
         self.__replace_pattern: Final[Pattern[str]] = regex_compile(r"[ \n*\r]")
+        self.__dialog: Callable[[str], None] = dialog
+        self.__aborted: bool = False
         self.logged_in: bool = False
 
     async def __aexit__(self, *_: object) -> None:
@@ -139,18 +142,50 @@ class AsyncRobot:
     async def read_until(self, *match: bytes) -> bytes:
         return await self.__reader.readuntil(match)
 
+    async def initialize(self) -> None:
+        current_status: dict[Status, bool] = await self.status()
+        if any([current_status[Status.TEACH_LOCK], current_status[Status.TEACH_MODE], current_status[Status.HOLD]]):
+            self.__dialog("Robot is not ready for operation!")
+            return
+        if current_status[Status.ERROR]:
+            await self.reset_errors()
+        if current_status[Status.CONTINUOUS_PATH]:
+            await self.toggle((Switch.CONTINOUS_PATH, False))
+        if current_status[Status.REPEAT_ONCE]:
+            await self.toggle((Switch.REPEAT_ONCE, True))
+        if current_status[Status.STEP_ONCE]:
+            await self.toggle((Switch.STEP_ONCE, False))
+        if not current_status[Status.MOTOR_POWERED]:
+            await self.toggle((Switch.MOTOR, True))
+            if not (await self.status())[Status.MOTOR_POWERED]:
+                self.__dialog("Motor cannot be powered on!")
+
     async def connect(self) -> None:
-        await self.__negotiate()
-        self.write(b"as\r\n")
-        await self.read_until(b"as\r\n>")
+        if self.logged_in:
+            return
+        try:
+            self.__reader, self.__writer = await open_connection(self.__ip, self.__port)
+            await self.__negotiate()
+            self.write(b"as\r\n")
+            await self.read_until(b"as\r\n>")
+        except ConnectionError:
+            self.__dialog("Connection refused!\nCheck IP and port!")
+            return
+
+        await self.initialize()
         self.logged_in = True
+        self.__dialog("Connected and logged in!")
 
     async def disconnect(self) -> None:
+        if not self.logged_in:
+            return
         await self.abort_motion()
+        await self.toggle((Switch.MOTOR, False))
         self.write(b"signal -2011\r\n")
         self.__writer.close()
         await self.__writer.wait_closed()
         self.logged_in = False
+        self.__dialog("Logged out and disconnected!")
 
     async def status(self) -> dict[Status, bool]:
         self.write(b"SWITCH\r\n")
@@ -190,13 +225,11 @@ class AsyncRobot:
             point.in_memory = False
 
     async def move(self, move_type: Move, point: Point) -> None:
+        print(point)
         if not point.in_memory:
             await self.add_point(point)
         self.write(f"{move_type.value} {point.name}\r\n")
-        state: bytes = await self.read_until(b"DO motion completed.", b"suddenly changed.", b"Destination is out of motion range.", b"beyond motion range.")
-        if b"beyond motion range." in state:
-            raise RuntimeError(state.decode("ascii"))
-        await asyncio.sleep(0.3)
+        await self.wait_until_done()
 
     async def toggle(self, *switch: tuple[Switch, bool]) -> None:
         for sw in switch:
@@ -208,13 +241,14 @@ class AsyncRobot:
         await self.read_until(b"\r\n>", b"Cleared error state.")
 
     async def abort_motion(self) -> None:
-        self.write("ABORT\r\n")
-        await self.read_until(b"\r\n>", b"DO motion held.", b"Program aborted.")
+        self.__aborted = True
+        self.write(b"ABORT\r\n")
+        print("ABORTED")
+        # await self.read_until(b"DO motion held.", b"Program aborted.")
 
     async def home(self) -> None:
-        self.write("DO HOME\r\n")
-        await self.read_until(b"DO motion completed.\r\n", b"suddenly changed.", b"Destination is out of motion range.", b"beyond motion range.")
-        await sleep(0.3)
+        self.write(b"DO HOME\r\n")
+        await self.wait_until_done()
 
     async def load_program(self, program: Program) -> None:
         self.write(b"KILL\n1\n")
@@ -231,10 +265,9 @@ class AsyncRobot:
 
     async def exec_program(self, program: Program) -> None:
         self.write(f"EXE {program.name}\r\n")
-        await self.read_until(b"Program completed.", b"Program aborted.", b"Program held.")
+        await self.wait_until_done()
 
     async def __negotiate(self) -> None:
-        self.__reader, self.__writer = await self.__connection
         for _ in range(4):
             data: bytes = await self.__reader.readexactly(3)
             if data == Flag.IAC + Flag.DO + Flag.TTYPE:
@@ -243,3 +276,25 @@ class AsyncRobot:
                 self.write(Flag.IAC + Flag.DO + Flag.ECHO)
             elif data == Flag.IAC + Flag.SB + Flag.TTYPE:
                 self.write(Flag.IAC + Flag.SB + Flag.TTYPE + b"VT100" + Flag.IAC + Flag.SE)
+
+    async def wait_until_done(self) -> None:
+        while not self.__aborted:
+            if (status := await self.status())[Status.BUSY]:
+                await asyncio.sleep(0.01)
+            if not status[Status.BUSY]:
+                break
+        self.__aborted = False
+
+
+async def main() -> None:
+    async with AsyncRobot(ip="127.0.0.1", port=9105) as robot:
+        await robot.connect()
+        A1 = Point("a1", Cartesian(x=93.395, y=547.541, z=-210.056, o=164.851, a=179.143, t=-108.635))
+        await robot.add_point(A1)
+        await robot.move(Move.HYBRID, A1)
+        await robot.home()
+    # await robot.home()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

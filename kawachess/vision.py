@@ -18,6 +18,9 @@ class OpenCVDetection(Image):
         self.filter_quality = FilterQuality.NONE
         self.__is_mounted = False
 
+    def __del__(self) -> None:
+        self.close()
+
     def did_mount(self) -> None:
         self.__is_mounted = True
         if not self.capture.isOpened():
@@ -53,9 +56,6 @@ class OpenCVDetection(Image):
 
     def build(self) -> None:
         self.img = Image(height=self.image_size, width=self.image_size)
-
-    def __del__(self) -> None:
-        self.close()
 
     def close(self) -> None:
         self.capture.release()

@@ -36,15 +36,24 @@ from flet import (
     app,
 )
 
-from kawachess import DatabaseContainer, colors
-from kawachess.chess import GameContainer
-from kawachess.components import Button, CloseButton, MaximizeButton, MinimizeButton
-from kawachess.robot_async import AsyncRobot
+from kawachess import (
+    ACCENT_COLOR_1,
+    ACCENT_COLOR_3,
+    MAIN_COLOR,
+    WHITE,
+    Button,
+    CloseButton,
+    DatabaseContainer,
+    GameContainer,
+    MaximizeButton,
+    MinimizeButton,
+    Robot,
+)
 
-# ROBOT_IP: Final[str] = "192.168.1.155"
-# ROBOT_PORT: Final[int] = 23
-ROBOT_IP: Final[str] = "127.0.0.1"
-ROBOT_PORT: Final[int] = 9105
+ROBOT_IP: Final[str] = "192.168.1.155"
+ROBOT_PORT: Final[int] = 23
+# ROBOT_IP: Final[str] = "127.0.0.1"
+# ROBOT_PORT: Final[int] = 9105
 
 
 class AboutContainer(Column):
@@ -63,9 +72,9 @@ class AboutContainer(Column):
 
 
 class SettingsContainer(Column):
-    def __init__(self, robot: AsyncRobot, game: GameContainer) -> None:
+    def __init__(self, robot: Robot, game: GameContainer) -> None:
         super().__init__()
-        self.robot: AsyncRobot = robot
+        self.robot: Robot = robot
         self.game: GameContainer = game
         self.expand = True
         self.alignment = MainAxisAlignment.CENTER
@@ -73,9 +82,9 @@ class SettingsContainer(Column):
         self.__nickname_field: TextField = TextField(
             width=400,
             text_align=TextAlign.CENTER,
-            bgcolor=colors.ACCENT_COLOR_1,
-            focused_border_color=colors.ACCENT_COLOR_3,
-            border_color=colors.ACCENT_COLOR_1,
+            bgcolor=ACCENT_COLOR_1,
+            focused_border_color=ACCENT_COLOR_3,
+            border_color=ACCENT_COLOR_1,
             hint_text="Player nickname",
             label="Player nickname",
             focused_border_width=3,
@@ -90,8 +99,8 @@ class SettingsContainer(Column):
             width=400,
             label="{value}",
             value=20,
-            thumb_color=colors.ACCENT_COLOR_3,
-            active_color=colors.ACCENT_COLOR_3,
+            thumb_color=ACCENT_COLOR_3,
+            active_color=ACCENT_COLOR_3,
             on_change=lambda e: self.__control_changed(e, self.game, "skill_level"),
         )
         self.controls = [
@@ -100,9 +109,9 @@ class SettingsContainer(Column):
             RadioGroup(
                 content=Row(
                     [
-                        Radio(value="white", label="White", active_color=colors.ACCENT_COLOR_3),
-                        Radio(value="black", label="Black", active_color=colors.ACCENT_COLOR_3),
-                        Radio(value="random", label="Random", active_color=colors.ACCENT_COLOR_3),
+                        Radio(value="white", label="White", active_color=ACCENT_COLOR_3),
+                        Radio(value="black", label="Black", active_color=ACCENT_COLOR_3),
+                        Radio(value="random", label="Random", active_color=ACCENT_COLOR_3),
                     ],
                     alignment=MainAxisAlignment.CENTER,
                 ),
@@ -127,26 +136,26 @@ class SettingsContainer(Column):
     def __control_changed(event: ControlEvent, target_object: object, attribute_name: str | int) -> None:
         setattr(target_object, str(attribute_name), event.control.value)
 
-    async def __disconnect(self, *_: object) -> None:
-        await self.robot.disconnect()
+    def __disconnect(self, *_: object) -> None:
+        self.robot.disconnect()
 
-    async def __connect(self, *_: object) -> None:
-        await self.robot.connect()
+    def __connect(self, *_: object) -> None:
+        self.robot.connect()
 
 
 class KawaChessApp:
     def __init__(self, page: Page) -> None:
         self.__page: Page = page
-        self.__robot: AsyncRobot = AsyncRobot(ROBOT_IP, ROBOT_PORT)
-        self.__page.run_task(self.__robot.connect)
+        self.__robot: Robot = Robot(ROBOT_IP, ROBOT_PORT, self.__show_dialog)
+        self.__page.run_thread(self.__robot.connect)
         self.__game_container: GameContainer = GameContainer(420, self.__show_dialog, self.__robot)
         self.__database_container: DatabaseContainer = DatabaseContainer()
         self.__settings_container: SettingsContainer = SettingsContainer(self.__robot, self.__game_container)
         self.__about_container: AboutContainer = AboutContainer()
         self.__maximize_button: IconButton = MaximizeButton(on_click=lambda _: self.__maximize())
         self.__minimize_button: IconButton = MinimizeButton(on_click=lambda _: self.__minimize())
-        self.__close_button: IconButton = CloseButton(self.__close)
-        self.__page.bgcolor = colors.MAIN_COLOR
+        self.__close_button: IconButton = CloseButton(on_click=self.__close)
+        self.__page.bgcolor = MAIN_COLOR
         self.__page.title = "KawaChess"
         self.__page.window.alignment = alignment.center
         self.__page.window.width = 16 * 80
@@ -172,13 +181,13 @@ class KawaChessApp:
                 Row(
                     [
                         Image(src="logo.png", width=16, height=16),
-                        Text(self.__page.title, color=colors.WHITE, overflow=TextOverflow.ELLIPSIS, expand=True, size=16),
+                        Text(self.__page.title, color=WHITE, overflow=TextOverflow.ELLIPSIS, expand=True, size=16),
                     ],
                 ),
                 expand=True,
                 maximizable=True,
             ),
-            bgcolor=colors.ACCENT_COLOR_1,
+            bgcolor=ACCENT_COLOR_1,
             elevation_on_scroll=0,
             elevation=0,
             title_spacing=10,
@@ -196,8 +205,8 @@ class KawaChessApp:
             group_alignment=-1,
             label_type=NavigationRailLabelType.ALL,
             selected_index=0,
-            bgcolor=colors.ACCENT_COLOR_1,
-            indicator_color=colors.ACCENT_COLOR_3,
+            bgcolor=ACCENT_COLOR_1,
+            indicator_color=ACCENT_COLOR_3,
             on_change=self.__change_container,
         )
         self.__page.controls = [
@@ -225,8 +234,8 @@ class KawaChessApp:
                 self.__switcher.content = self.__about_container
         self.__switcher.update()
 
-    async def __close(self, *_: object) -> None:
-        await self.__game_container.close()
+    def __close(self, *_: object) -> None:
+        self.__game_container.close()
         self.__page.window.close()
 
     def __maximize(self) -> None:
@@ -246,8 +255,8 @@ class KawaChessApp:
         dialog = AlertDialog(
             shape=RoundedRectangleBorder(radius=5),
             content=Text(msg, text_align=TextAlign.CENTER, size=27),
-            bgcolor=colors.ACCENT_COLOR_1,
-            icon=Icon(Icons.INFO_OUTLINED, size=42, color=colors.ACCENT_COLOR_3),
+            bgcolor=ACCENT_COLOR_1,
+            icon=Icon(Icons.INFO_OUTLINED, size=42, color=ACCENT_COLOR_3),
         )
         self.__page.overlay.append(dialog)
         dialog.open = True
