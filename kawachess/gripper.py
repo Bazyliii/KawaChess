@@ -1,10 +1,10 @@
 from collections.abc import Callable
+from enum import Enum
 
 import serial.tools.list_ports
 from maestro import Maestro
 
 from kawachess.constants import POLOLU_MINI_MAESTRO_NOT_FOUND
-from enum import Enum
 
 
 class State(Enum):

@@ -2,19 +2,27 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Final
 
+import chess
 from chess import Board, svg
 from chess import Move as Chess_Move
 from chess.engine import Limit, SimpleEngine
+from cv2 import (
+    CAP_DSHOW,
+    CAP_PROP_FPS,
+    CAP_PROP_FRAME_HEIGHT,
+    CAP_PROP_FRAME_WIDTH,
+    VideoCapture,
+)
 from flet import Column, Control, CrossAxisAlignment, Icons, Image, MainAxisAlignment, Row
 from pytz import BaseTzInfo, timezone
-from time import sleep
+
 from kawachess.astemplates import en_passant, kingside_castling, move_with_capture, move_without_capture, queenside_castling
 from kawachess.components import Button
 from kawachess.constants import ACCENT_COLOR_1, ACCENT_COLOR_2, ACCENT_COLOR_3, ACCENT_COLOR_4, WHITE
 from kawachess.database import ChessDatabase, GameData
+from kawachess.gripper import Gripper, State
 from kawachess.robot import Cartesian, Move, Point, Program, Robot, Switch
-from kawachess.vision import OpenCVDetection
-from kawachess.gripper import State, Gripper
+from kawachess.vision import ImageProcessing
 
 TIMEZONE: Final[BaseTzInfo] = timezone("Europe/Warsaw")
 
@@ -22,7 +30,8 @@ TIMEZONE: Final[BaseTzInfo] = timezone("Europe/Warsaw")
 class GameContainer(Column):
     def __init__(self, board_size: int, dialog: Callable[[str], None], robot: Robot) -> None:
         super().__init__()
-        self.A1: Point = Point("a1", Cartesian(x=134.255, y=554.503, z=-201.167, o=-175.344, a=179.571, t=-86.117))
+        self.base: Point = Point("base", Cartesian(x=134.255, y=554.503, z=-201.167, o=-175.344, a=179.571, t=-86.117))
+        self.A1: Point = self.calculate_point_to_move("a1", 80)
         self.A8: Point = self.calculate_point_to_move("a8", 80)
         self.E1: Point = self.calculate_point_to_move("e1", 80)
         self.E8: Point = self.calculate_point_to_move("e8", 80)
@@ -46,7 +55,11 @@ class GameContainer(Column):
         self.__game_status: bool = False
         self.__start_datetime: datetime
         self.__pending_game_stockfish_skill_lvl: int
-        self.__opencv_detection: OpenCVDetection = OpenCVDetection(board_size)
+        self.__image_processing: ImageProcessing = ImageProcessing(720, -5)
+        self.__capture: VideoCapture = VideoCapture(0, CAP_DSHOW)
+        self.__capture.set(CAP_PROP_FPS, 30)
+        self.__capture.set(CAP_PROP_FRAME_HEIGHT, 720)
+        self.__capture.set(CAP_PROP_FRAME_WIDTH, 1280)
         self.__board_colors: dict[str, str] = {
             "square light": "#DDDDDD",
             "square dark": ACCENT_COLOR_1,
@@ -58,6 +71,7 @@ class GameContainer(Column):
         self.board: Board = Board()
         self.__chess_board_svg: Image = Image(svg.board(self.board, colors=self.__board_colors), width=board_size, height=board_size)
         self.__player_name: str
+        self.__player_color: chess.Color = chess.BLACK
         self.expand = True
         self.bgcolor: str = ACCENT_COLOR_1
         self.alignment = MainAxisAlignment.CENTER
@@ -71,7 +85,7 @@ class GameContainer(Column):
             Row(
                 [
                     self.__chess_board_svg,
-                    self.__opencv_detection,
+                    # self.__opencv_detection,
                 ],
                 alignment=MainAxisAlignment.CENTER,
             ),
@@ -96,8 +110,8 @@ class GameContainer(Column):
         self.robot.add_point(
             self.A1, self.A8, self.E1, self.E8, self.G1, self.G8, self.H1, self.H8, self.F1, self.F8, self.C1, self.C8, self.D1, self.D8, self.drop
         )
-        # self.robot.move(Move.HYBRID, self.drop)
-        player_turn: bool = False
+        self.robot.move(Move.HYBRID, self.drop)
+        player_turn: bool = self.__player_color
         self.board.reset()
         self.__engine.configure({"Skill Level": self.__skill_level})
         self.__start_datetime = datetime.now(TIMEZONE)
@@ -105,31 +119,26 @@ class GameContainer(Column):
         self.update_when_mounted(self.__chess_board_svg)
         self.__pending_game_stockfish_skill_lvl = self.__skill_level
         while self.__game_status and not self.board.is_game_over():
-            engine_move: Chess_Move | None = self.__engine.play(self.board, Limit(time=1.0)).move
-            if engine_move is None or engine_move not in self.board.legal_moves:
-                continue
-
-            self.make_move(engine_move)
-
-            if self.__game_status:
-                self.board.push(engine_move)
-                self.__chess_board_svg.src = svg.board(self.board, colors=self.__board_colors, lastmove=engine_move)
-            self.update_when_mounted(self.__chess_board_svg)
-            player_turn = False
-            # self.dialog("Player move")
-            while player_turn:
-                try:
-                    player_move: Chess_Move = Chess_Move.from_uci(input("Enter move: "))
-                except ValueError:
-                    self.dialog("Invalid move")
+            if not player_turn:
+                engine_move: Chess_Move | None = self.__engine.play(self.board, Limit(time=1.0)).move
+                if engine_move is None or engine_move not in self.board.legal_moves:
                     continue
-                if player_move in self.board.legal_moves:
-                    self.board.push(player_move)
-                    self.__chess_board_svg.src = svg.board(self.board, colors=self.__board_colors, lastmove=player_move)
-                    self.update()
+                self.make_move(engine_move)
+                if self.__game_status:
+                    self.board.push(engine_move)
+                    self.__chess_board_svg.src = svg.board(self.board, colors=self.__board_colors, lastmove=engine_move)
+                self.update_when_mounted(self.__chess_board_svg)
+                player_turn = True
+
+            if player_turn and self.__game_status and not self.board.is_game_over():
+                frame = self.__capture.read()[1]
+                chess_board = self.__image_processing.get_chessboard(frame)
+                move = self.__image_processing.get_move(chess_board, self.__player_color)
+                if move:
+                    self.board.push(move)
+                    self.__chess_board_svg.src = svg.board(self.board, colors=self.__board_colors, lastmove=move)
+                    self.update_when_mounted(self.__chess_board_svg)
                     player_turn = False
-                else:
-                    self.dialog("Invalid move")
         game_data = GameData(
             self.board,
             self.__pending_game_stockfish_skill_lvl,
@@ -158,6 +167,7 @@ class GameContainer(Column):
                 self.robot.add_point(take_point)
                 self.execute_task(en_passant(from_point, to_point, take_point, self.drop, speed, height))
                 return
+            self.__image_processing.push_capture(move, self.__player_color)
             self.execute_task(move_with_capture(from_point, to_point, self.drop, speed, height))
             return
         if self.board.is_kingside_castling(move):
@@ -191,7 +201,7 @@ class GameContainer(Column):
         if self.__game_status:
             self.__game_status = False
             self.robot.abort_motion()
-        self.__opencv_detection.close()
+        # self.__opencv_detection.close()
         self.__engine.quit()
 
     def did_mount(self) -> None:
@@ -207,7 +217,7 @@ class GameContainer(Column):
     def calculate_point_to_move(self, algebraic_move: str, z: float = 0.0) -> Point:
         x: int = ord(algebraic_move[0].lower()) - ord("a")
         y: int = int(algebraic_move[1]) - 1
-        return self.A1.shift(algebraic_move, Cartesian(x=x * -37.3, y=y * -37.3, z=z))
+        return self.base.shift(algebraic_move, Cartesian(x=x * -37.3, y=y * -37.3, z=z))
 
     @property
     def player_name(self) -> str:
@@ -224,3 +234,21 @@ class GameContainer(Column):
     @skill_level.setter
     def skill_level(self, skill_level: int) -> None:
         self.__skill_level: int = skill_level
+
+    @property
+    def player_color(self) -> str | None:
+        match self.__player_color:
+            case chess.WHITE:
+                return "white"
+            case chess.BLACK:
+                return "black"
+            case _:
+                return None
+
+    @player_color.setter
+    def player_color(self, player_color: str) -> None:
+        match player_color:
+            case "white":
+                self.__player_color = chess.WHITE
+            case "black":
+                self.__player_color = chess.BLACK

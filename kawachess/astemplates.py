@@ -8,7 +8,7 @@ def home(speed: int, height: int, drop: Point) -> Program:
     return Program(
         f"""
         .PROGRAM homie ()
-        SPEED {speed} ALWAYS
+        SPEED 30 ALWAYS
         LDEPART {height}
         LMOVE {drop.name}
         .END

@@ -11,6 +11,7 @@ __all__: list[str] = [
     "RED",
     "WHITE",
     "Button",
+    "CVContainer",
     "Cartesian",
     "ChessDatabase",
     "CloseButton",
@@ -18,9 +19,9 @@ __all__: list[str] = [
     "GameContainer",
     "GameData",
     "Gripper",
+    "ImageProcessing",
     "MaximizeButton",
     "MinimizeButton",
-    "OpenCVDetection",
     "Point",
     "Program",
     "Robot",
@@ -66,10 +67,7 @@ from kawachess.database import (
     DatabaseContainer,
     GameData,
 )
-from kawachess.gripper import (
-    Gripper,
-    State
-)
+from kawachess.gripper import Gripper, State
 from kawachess.robot import (
     Cartesian,
     Point,
@@ -78,5 +76,5 @@ from kawachess.robot import (
     Status,
 )
 from kawachess.vision import (
-    OpenCVDetection,
+    ImageProcessing,
 )

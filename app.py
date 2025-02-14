@@ -116,6 +116,7 @@ class SettingsContainer(Column):
                     alignment=MainAxisAlignment.CENTER,
                 ),
                 value="random",
+                on_change=lambda e: self.__control_changed(e, self.game, "player_color"),
             ),
             Text("Stockfish skill level:", size=25),
             self.__skill_slider,
@@ -131,6 +132,8 @@ class SettingsContainer(Column):
             self.game.player_name = self.__nickname_field.value
         if self.__skill_slider.value is not None:
             self.game.skill_level = int(self.__skill_slider.value)
+        if self.game.player_color is not None:
+            self.game.player_color = self.game.player_color
 
     @staticmethod
     def __control_changed(event: ControlEvent, target_object: object, attribute_name: str | int) -> None:

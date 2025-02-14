@@ -141,8 +141,9 @@ class Robot:
         self.read_until(b"login:")
         self.__write(username)
         self.read_until(b">")
+        if not self.__initialize():
+            return
         self.logged_in = True
-        self.__initialize()
         self.__dialog("Connected and logged in!")
         self.__clear_queue()
 
@@ -342,10 +343,7 @@ class Robot:
     def __socket_descriptor(self) -> int:
         return self.__socket.fileno()
 
-    def __initialize(self) -> None:
-        if not self.logged_in:
-            return
-
+    def __initialize(self) -> bool:
         current_status: dict[Status, bool] = self.status()
         if any(
             [
@@ -355,8 +353,7 @@ class Robot:
             ]
         ):
             self.__dialog("Robot is not ready for operation!")
-            raise RuntimeError
-            return
+            return False
 
         if current_status[Status.ERROR]:
             self.reset_errors()
@@ -371,7 +368,9 @@ class Robot:
             sleep(0.1)
             if not self.status()[Status.MOTOR_POWERED]:
                 self.__dialog("Motor cannot be powered on!")
-                raise RuntimeError
+                return False
+
+        return True
 
     def __write(self, buffer: str | bytes, end: bytes = b"\r\n") -> None:
         buffer_encoded: bytes = (bytes(buffer) if isinstance(buffer, bytes | bytearray | memoryview) else buffer.encode("ascii")).replace(
