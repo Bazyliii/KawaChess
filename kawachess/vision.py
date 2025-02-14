@@ -213,6 +213,9 @@ class ImageProcessing:
         self.__white_board.remove_piece_at(move.to_square) if color else self.__black_board.remove_piece_at(move.to_square)
 
     def clear_boards(self) -> None:
-        self.__white_board.set_board_fen(fen="8/8/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq")
-        self.__black_board.set_board_fen(fen="rnbqkbnr/pppppppp/8/8/8/8/8/8 b KQkq")
+        self.__white_board = Board(fen="8/8/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq")
+        self.__black_board = Board(fen="rnbqkbnr/pppppppp/8/8/8/8/8/8 b KQkq")
         self.__piece_count = 16
+
+    def get_promotion():
+        pass

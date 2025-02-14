@@ -123,6 +123,8 @@ class GameContainer(Column):
                 engine_move: Chess_Move | None = self.__engine.play(self.board, Limit(time=1.0)).move
                 if engine_move is None or engine_move not in self.board.legal_moves:
                     continue
+                if engine_move.promotion:
+                    print(engine_move)
                 self.make_move(engine_move)
                 if self.__game_status:
                     self.board.push(engine_move)
