@@ -105,8 +105,8 @@ class ImageProcessing:
             for y in range(8)
         )
         self.__prev_gray: MatLike = np.zeros((self.__frame_size, self.__frame_size), dtype=np.uint8)
-        self.__white_board: Board = Board(fen="8/8/8/8/8/8/PPPPPPPP/RNBQKBNR")
-        self.__black_board: Board = Board(fen="rnbqkbnr/pppppppp/8/8/8/8/8/8")
+        self.__white_board: Board = Board(fen="8/8/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq")
+        self.__black_board: Board = Board(fen="rnbqkbnr/pppppppp/8/8/8/8/8/8 b KQkq")
         self.__piece_count: int = 16
         self.__counter: int = 0
 
@@ -173,26 +173,46 @@ class ImageProcessing:
 
     def get_move(self, frame: MatLike, color: chess.Color) -> Move | None:
         self.__counter += 1
-        new_board = self.get_piece_board(frame, color).piece_map()
+        new_board = self.get_piece_board(frame, color)
+        new_piece_map = new_board.piece_map()
         if self.__counter < 30:
             return None
         self.__counter = 0
+        if self.__white_board.king(chess.WHITE) == chess.E1 and new_board.king(chess.WHITE) == chess.C1:
+            self.__white_board.set_piece_map(new_piece_map)
+            return Move.from_uci("e1c1")
+        if self.__black_board.king(chess.BLACK) == chess.E8 and new_board.king(chess.BLACK) == chess.C8:
+            self.__black_board.set_piece_map(new_piece_map)
+            return Move.from_uci("e8c8")
+        if self.__white_board.king(chess.WHITE) == chess.E1 and new_board.king(chess.WHITE) == chess.G1:
+            self.__white_board.set_piece_map(new_piece_map)
+            return Move.from_uci("e1g1")
+        if self.__black_board.king(chess.BLACK) == chess.E8 and new_board.king(chess.BLACK) == chess.G8:
+            self.__black_board.set_piece_map(new_piece_map)
+            return Move.from_uci("e8g8")
         if (
             not self.is_stable(frame)
             or len(self.__white_board.piece_map() if color else self.__black_board.piece_map()) != self.__piece_count
-            or len(new_board) != self.__piece_count
-            or new_board == (self.__white_board.piece_map() if color else self.__black_board.piece_map())
+            or len(new_piece_map) != self.__piece_count
+            or new_piece_map == (self.__white_board.piece_map() if color else self.__black_board.piece_map())
         ):
             return None
-        if self.__white_board.piece_map() if color else self.__black_board.piece_map() != new_board:
-            from_square = self.__white_board.piece_map().items() - new_board.items() if color else self.__black_board.piece_map().items() - new_board.items()
-            to_square = new_board.items() - (self.__white_board.piece_map().items() if color else self.__black_board.piece_map().items())
+        if self.__white_board.piece_map() if color else self.__black_board.piece_map() != new_piece_map:
+            from_square = (
+                self.__white_board.piece_map().items() - new_piece_map.items() if color else self.__black_board.piece_map().items() - new_piece_map.items()
+            )
+            to_square = new_piece_map.items() - (self.__white_board.piece_map().items() if color else self.__black_board.piece_map().items())
             if len(from_square) != 1 or len(to_square) != 1:
                 return None
-            self.__white_board.set_piece_map(new_board) if color else self.__black_board.set_piece_map(new_board)
+            self.__white_board.set_piece_map(new_piece_map) if color else self.__black_board.set_piece_map(new_piece_map)
             return Move.from_uci(f"{square_name(next(iter(from_square))[0])}{square_name(next(iter(to_square))[0])}")
         return None
 
     def push_capture(self, move: Move, color: chess.Color) -> None:
         self.__piece_count -= 1
         self.__white_board.remove_piece_at(move.to_square) if color else self.__black_board.remove_piece_at(move.to_square)
+
+    def clear_boards(self) -> None:
+        self.__white_board.set_board_fen(fen="8/8/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq")
+        self.__black_board.set_board_fen(fen="rnbqkbnr/pppppppp/8/8/8/8/8/8 b KQkq")
+        self.__piece_count = 16

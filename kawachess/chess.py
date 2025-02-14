@@ -130,7 +130,7 @@ class GameContainer(Column):
                 self.update_when_mounted(self.__chess_board_svg)
                 player_turn = True
 
-            if player_turn and self.__game_status and not self.board.is_game_over():
+            while player_turn and self.__game_status and not self.board.is_game_over():
                 frame = self.__capture.read()[1]
                 chess_board = self.__image_processing.get_chessboard(frame)
                 move = self.__image_processing.get_move(chess_board, self.__player_color)
@@ -154,6 +154,7 @@ class GameContainer(Column):
         self.__start_button.update()
         self.__resign_button.update()
         if self.board.is_game_over():
+            self.__image_processing.clear_boards()
             self.dialog("Game over!")
         self.update_when_mounted(self.__chess_board_svg)
 
@@ -162,12 +163,12 @@ class GameContainer(Column):
         to_point: Point = self.calculate_point_to_move(move.uci()[2:4], height)
         self.robot.add_point(from_point, to_point)
         if self.board.is_capture(move):
+            self.__image_processing.push_capture(move, self.__player_color)
             if self.board.is_en_passant(move):
                 take_point: Point = self.calculate_point_to_move(move.uci()[2] + move.uci()[1], height)
                 self.robot.add_point(take_point)
                 self.execute_task(en_passant(from_point, to_point, take_point, self.drop, speed, height))
                 return
-            self.__image_processing.push_capture(move, self.__player_color)
             self.execute_task(move_with_capture(from_point, to_point, self.drop, speed, height))
             return
         if self.board.is_kingside_castling(move):
@@ -191,6 +192,7 @@ class GameContainer(Column):
             return
         # self.robot.abort_motion()
         self.__game_status = False
+        self.__image_processing.clear_boards()
         self.__resign_button.disabled = True
         self.__start_button.disabled = False
         self.__resign_button.update()

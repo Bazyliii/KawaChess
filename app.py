@@ -111,11 +111,10 @@ class SettingsContainer(Column):
                     [
                         Radio(value="white", label="White", active_color=ACCENT_COLOR_3),
                         Radio(value="black", label="Black", active_color=ACCENT_COLOR_3),
-                        Radio(value="random", label="Random", active_color=ACCENT_COLOR_3),
                     ],
                     alignment=MainAxisAlignment.CENTER,
                 ),
-                value="random",
+                value="black",
                 on_change=lambda e: self.__control_changed(e, self.game, "player_color"),
             ),
             Text("Stockfish skill level:", size=25),
