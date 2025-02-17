@@ -11,7 +11,6 @@ __all__: list[str] = [
     "RED",
     "WHITE",
     "Button",
-    "CVContainer",
     "Cartesian",
     "ChessDatabase",
     "CloseButton",
@@ -25,6 +24,7 @@ __all__: list[str] = [
     "Point",
     "Program",
     "Robot",
+    "State",
     "Status",
     "en_passant",
     "kingside_castling",
@@ -58,7 +58,6 @@ from kawachess.constants import (
     GREEN,
     GREY,
     MAIN_COLOR,
-    POLOLU_MINI_MAESTRO_NOT_FOUND,
     RED,
     WHITE,
 )

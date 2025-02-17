@@ -4,8 +4,6 @@ from enum import Enum
 import serial.tools.list_ports
 from maestro import Maestro
 
-from kawachess.constants import POLOLU_MINI_MAESTRO_NOT_FOUND
-
 
 class State(Enum):
     OPEN = 0
@@ -13,7 +11,7 @@ class State(Enum):
 
 
 class Gripper:
-    def __init__(self, *, tty: str = "", dialog: Callable[[str], None] = print) -> None:
+    def __init__(self, tty: str = "", dialog: Callable[[str], None] = print) -> None:
         if not tty:
             tty = self.__get_pololu_tty_port()
         self.maestro: Maestro = Maestro.connect("mini12", tty=tty)
@@ -30,8 +28,8 @@ class Gripper:
         for port in serial.tools.list_ports.comports():
             if "Pololu Mini Maestro 12-Channel USB Servo Controller Command Port" in port.description:
                 return port.device
-        self.dialog("Position out of range!")
-        raise ValueError(POLOLU_MINI_MAESTRO_NOT_FOUND)
+        self.dialog("No Pololu Mini Maestro found!")
+        return ""
 
     def __control(self, position: int) -> None:
         if not self.limit[0] <= position <= self.limit[1]:

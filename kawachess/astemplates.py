@@ -8,7 +8,7 @@ def home(speed: int, height: int, drop: Point) -> Program:
     return Program(
         f"""
         .PROGRAM homie ()
-        SPEED 30 ALWAYS
+        SPEED {speed} ALWAYS
         LDEPART {height}
         LMOVE {drop.name}
         .END
@@ -43,7 +43,7 @@ def move_without_capture(from_point: Point, to_point: Point, drop: Point, speed:
             """
         ),
         State.OPEN,
-        home(speed, height, drop),
+        home(30, height, drop),
     )
 
 
@@ -95,7 +95,7 @@ def move_with_capture(from_point: Point, to_point: Point, drop: Point, speed: in
             """
         ),
         State.OPEN,
-        home(speed, height, drop),
+        home(30, height, drop),
     )
 
 
@@ -151,7 +151,7 @@ def kingside_castling(drop: Point, color: Color, speed: int, height: int) -> tup
             """
         ),
         State.OPEN,
-        home(speed, height, drop),
+        home(30, height, drop),
     )
 
 
@@ -207,7 +207,7 @@ def queenside_castling(drop: Point, color: Color, speed: int, height: int) -> tu
             """
         ),
         State.OPEN,
-        home(speed, height, drop),
+        home(30, height, drop),
     )
 
 
@@ -249,6 +249,6 @@ def en_passant(from_point: Point, to_point: Point, take_point: Point, drop: Poin
             """
         ),
         State.CLOSE,
-        home(speed, height, drop),
+        home(30, height, drop),
         State.OPEN,
     )

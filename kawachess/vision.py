@@ -1,32 +1,52 @@
-from base64 import b64encode
-from re import S
-from time import sleep
 from typing import TYPE_CHECKING, ClassVar, Final
 
-import chess
 import numpy as np
-from chess import BISHOP, BLACK, KING, KNIGHT, PAWN, QUEEN, ROOK, WHITE, Board, Move, Piece, square, square_name
+from chess import (
+    A1,
+    A2,
+    B1,
+    B2,
+    BISHOP,
+    BLACK,
+    C1,
+    C2,
+    C8,
+    D1,
+    D2,
+    E1,
+    E2,
+    E8,
+    F1,
+    F2,
+    G1,
+    G2,
+    G8,
+    H1,
+    H2,
+    KING,
+    KNIGHT,
+    PAWN,
+    QUEEN,
+    ROOK,
+    WHITE,
+    Board,
+    Color,
+    Move,
+    Piece,
+    square,
+    square_name,
+)
 from cv2 import (
-    CAP_DSHOW,
-    CAP_PROP_FPS,
-    CAP_PROP_FRAME_HEIGHT,
-    CAP_PROP_FRAME_WIDTH,
     CHAIN_APPROX_SIMPLE,
     COLOR_BGR2GRAY,
-    FONT_HERSHEY_SIMPLEX,
     RETR_EXTERNAL,
     THRESH_BINARY,
     GaussianBlur,
-    VideoCapture,
     absdiff,
     contourArea,
     cvtColor,
     findContours,
     getPerspectiveTransform,
-    getTextSize,
-    imencode,
-    putText,
-    rectangle,
     resize,
     threshold,
     warpPerspective,
@@ -40,11 +60,8 @@ from cv2.aruco import (
     getPredefinedDictionary,
 )
 from cv2.typing import MatLike
-from flet import FilterQuality, Image
-from numpy import array, float32, int32, mean, zeros
+from numpy import array, float32, int32, mean
 
-if TYPE_CHECKING:
-    from numpy.typing import NDArray
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
@@ -105,8 +122,12 @@ class ImageProcessing:
             for y in range(8)
         )
         self.__prev_gray: MatLike = np.zeros((self.__frame_size, self.__frame_size), dtype=np.uint8)
-        self.__white_board: Board = Board(fen="8/8/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq")
-        self.__black_board: Board = Board(fen="rnbqkbnr/pppppppp/8/8/8/8/8/8 b KQkq")
+        self.__white_board: Board = Board(fen="8/8/8/8/8/8/PPPPPPPP/RNBQKBNR")
+        self.__black_board: Board = Board(fen="rnbqkbnr/pppppppp/8/8/8/8/8/8")
+        self.__valid_boards: tuple[Board, Board] = (
+            Board(fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"),
+            Board(fen="RNBKQBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbkqbnr"),
+        )
         self.__piece_count: int = 16
         self.__counter: int = 0
 
@@ -121,6 +142,11 @@ class ImageProcessing:
         movement_detected = any(contourArea(contour) > 300 for contour in contours)
         self.__prev_gray = blur_frame.copy()
         return not movement_detected
+
+    def is_valid(self, frame: MatLike) -> bool:
+        board = self.get_piece_board(frame, None)
+        print(board)
+        return board.piece_map() == self.__valid_boards[0].piece_map() or board.piece_map() == self.__valid_boards[1].piece_map()
 
     def get_chessboard(self, frame: MatLike) -> MatLike:
         detected_markers: tuple = self.DETECTOR.detectMarkers(frame)
@@ -154,7 +180,7 @@ class ImageProcessing:
             (self.__frame_size, self.__frame_size),
         )
 
-    def get_piece_board(self, frame: MatLike, color: chess.Color) -> Board:
+    def get_piece_board(self, frame: MatLike, color: Color | None) -> Board:
         board = Board(fen=None)
         detected_markers: tuple = self.DETECTOR.detectMarkers(frame)
         if detected_markers[1] is None:
@@ -162,7 +188,7 @@ class ImageProcessing:
         for marker_corner, marker_id in zip(detected_markers[0], detected_markers[1].flatten(), strict=True):
             if marker_id not in self.PIECE_IDS:
                 continue
-            if self.PIECE_IDS[marker_id].color != color:
+            if self.PIECE_IDS[marker_id].color != color and color is not None:
                 continue
             corners: NDArray[int32] = marker_corner.reshape((4, 2)).astype(int)
             center = tuple(mean([corners[0], corners[2]], axis=0).astype(int))
@@ -171,23 +197,23 @@ class ImageProcessing:
                     board.set_piece_at(cord[4], self.PIECE_IDS[marker_id])
         return board
 
-    def get_move(self, frame: MatLike, color: chess.Color) -> Move | None:
+    def get_move(self, frame: MatLike, color: Color) -> Move | None:
         self.__counter += 1
         new_board = self.get_piece_board(frame, color)
         new_piece_map = new_board.piece_map()
         if self.__counter < 30:
             return None
         self.__counter = 0
-        if self.__white_board.king(chess.WHITE) == chess.E1 and new_board.king(chess.WHITE) == chess.C1:
+        if self.__white_board.king(WHITE) == E1 and new_board.king(WHITE) == C1:
             self.__white_board.set_piece_map(new_piece_map)
             return Move.from_uci("e1c1")
-        if self.__black_board.king(chess.BLACK) == chess.E8 and new_board.king(chess.BLACK) == chess.C8:
+        if self.__black_board.king(BLACK) == E8 and new_board.king(BLACK) == C8:
             self.__black_board.set_piece_map(new_piece_map)
             return Move.from_uci("e8c8")
-        if self.__white_board.king(chess.WHITE) == chess.E1 and new_board.king(chess.WHITE) == chess.G1:
+        if self.__white_board.king(WHITE) == E1 and new_board.king(WHITE) == G1:
             self.__white_board.set_piece_map(new_piece_map)
             return Move.from_uci("e1g1")
-        if self.__black_board.king(chess.BLACK) == chess.E8 and new_board.king(chess.BLACK) == chess.G8:
+        if self.__black_board.king(BLACK) == E8 and new_board.king(BLACK) == G8:
             self.__black_board.set_piece_map(new_piece_map)
             return Move.from_uci("e8g8")
         if (
@@ -208,7 +234,13 @@ class ImageProcessing:
             return Move.from_uci(f"{square_name(next(iter(from_square))[0])}{square_name(next(iter(to_square))[0])}")
         return None
 
-    def push_capture(self, move: Move, color: chess.Color) -> None:
+    def get_player_side(self, frame: MatLike) -> Color:
+        board = self.get_piece_board(frame, None)
+        if board.color_at(E1 | A1 | A2 | B1 | B2 | C1 | C2 | D1 | D2 | E1 | E2 | F1 | F2 | G1 | G2 | H1 | H2) == WHITE:
+            return WHITE
+        return BLACK
+
+    def push_capture(self, move: Move, color: Color) -> None:
         self.__piece_count -= 1
         self.__white_board.remove_piece_at(move.to_square) if color else self.__black_board.remove_piece_at(move.to_square)
 
@@ -217,5 +249,5 @@ class ImageProcessing:
         self.__black_board = Board(fen="rnbqkbnr/pppppppp/8/8/8/8/8/8 b KQkq")
         self.__piece_count = 16
 
-    def get_promotion():
+    def get_promotion() -> None:
         pass

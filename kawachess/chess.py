@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from datetime import datetime
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
 import chess
 from chess import Board, svg
@@ -21,7 +21,7 @@ from kawachess.components import Button
 from kawachess.constants import ACCENT_COLOR_1, ACCENT_COLOR_2, ACCENT_COLOR_3, ACCENT_COLOR_4, WHITE
 from kawachess.database import ChessDatabase, GameData
 from kawachess.gripper import Gripper, State
-from kawachess.robot import Cartesian, Move, Point, Program, Robot, Switch
+from kawachess.robot import Cartesian, Move, Point, Program, Robot
 from kawachess.vision import ImageProcessing
 
 TIMEZONE: Final[BaseTzInfo] = timezone("Europe/Warsaw")
@@ -85,7 +85,6 @@ class GameContainer(Column):
             Row(
                 [
                     self.__chess_board_svg,
-                    # self.__opencv_detection,
                 ],
                 alignment=MainAxisAlignment.CENTER,
             ),

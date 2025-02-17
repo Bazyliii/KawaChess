@@ -3,9 +3,13 @@ from asyncio import StreamReader, StreamWriter, open_connection, sleep
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
-from re import Pattern, S, findall, split, sub
+from re import Pattern, findall, split, sub
 from re import compile as regex_compile
 from typing import TYPE_CHECKING, Final, Self
+from warnings import warn
+
+warn("The AsyncRobot class is not tested and needs to be used with caution!", DeprecationWarning, 1)
+
 
 if TYPE_CHECKING:
     from re import Pattern
