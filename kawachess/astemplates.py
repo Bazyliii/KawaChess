@@ -22,7 +22,7 @@ def move_without_capture(from_point: Point, to_point: Point, drop: Point, speed:
         State.OPEN,
         Program(
             f"""
-            .PROGRAM no_cap_1 ()
+            .PROGRAM nocap_1 ()
             SPEED {speed} ALWAYS
             LMOVE {from_point.name}
             LDEPART -{height}
@@ -33,7 +33,7 @@ def move_without_capture(from_point: Point, to_point: Point, drop: Point, speed:
         State.CLOSE,
         Program(
             f"""
-            .PROGRAM no_cap_2 ()
+            .PROGRAM nocap_2 ()
             SPEED {speed} ALWAYS
             LDEPART {height}
             LMOVE {to_point.name}
@@ -216,7 +216,7 @@ def en_passant(from_point: Point, to_point: Point, take_point: Point, drop: Poin
         State.OPEN,
         Program(
             f"""
-            .PROGRAM en_pass_1 ()
+            .PROGRAM enpass_1 ()
             SPEED {speed} ALWAYS
             LMOVE {from_point.name}
             LDEPART -{height}
@@ -227,7 +227,7 @@ def en_passant(from_point: Point, to_point: Point, take_point: Point, drop: Poin
         State.CLOSE,
         Program(
             f"""
-            .PROGRAM en_pass_2 ()
+            .PROGRAM enpass_2 ()
             SPEED {speed} ALWAYS
             LDEPART {height}
             LMOVE {to_point.name}
@@ -239,7 +239,7 @@ def en_passant(from_point: Point, to_point: Point, take_point: Point, drop: Poin
         State.OPEN,
         Program(
             f"""
-            .PROGRAM en_pass_3 ()
+            .PROGRAM enpass_3 ()
             SPEED {speed} ALWAYS
             LDEPART {height}
             LMOVE {take_point.name}

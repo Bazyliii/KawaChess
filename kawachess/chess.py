@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from datetime import datetime
 from typing import Final
+from winsound import SND_ALIAS, PlaySound
 
 import chess
 from chess import Board, svg
@@ -25,7 +26,6 @@ from kawachess.robot import Cartesian, Move, Point, Program, Robot
 from kawachess.vision import ImageProcessing
 
 TIMEZONE: Final[BaseTzInfo] = timezone("Europe/Warsaw")
-
 
 class GameContainer(Column):
     def __init__(self, board_size: int, dialog: Callable[[str], None], robot: Robot) -> None:
@@ -71,7 +71,7 @@ class GameContainer(Column):
         self.board: Board = Board()
         self.__chess_board_svg: Image = Image(svg.board(self.board, colors=self.__board_colors), width=board_size, height=board_size)
         self.__player_name: str
-        self.__player_color: chess.Color = chess.BLACK
+        self.__player_color: chess.Color = chess.WHITE
         self.expand = True
         self.bgcolor: str = ACCENT_COLOR_1
         self.alignment = MainAxisAlignment.CENTER
@@ -117,16 +117,23 @@ class GameContainer(Column):
         self.__chess_board_svg.src = svg.board(self.board, colors=self.__board_colors)
         self.update_when_mounted(self.__chess_board_svg)
         self.__pending_game_stockfish_skill_lvl = self.__skill_level
+        self.__illegal_move: bool = False
         while self.__game_status and not self.board.is_game_over():
             if not player_turn:
-                engine_move: Chess_Move | None = self.__engine.play(self.board, Limit(time=1.0)).move
+                engine_move: Chess_Move | None = self.__engine.play(self.board, Limit(time=2.0)).move
                 if engine_move is None or engine_move not in self.board.legal_moves:
+                    print("Stockfish tried to make an illegal move!")
                     continue
-                if engine_move.promotion:
-                    print(engine_move)
+                print("Stockfish made move:", engine_move.uci())
                 self.make_move(engine_move)
                 if self.__game_status:
                     self.board.push(engine_move)
+                    if self.board.is_into_check(engine_move) and not self.board.is_checkmate():
+                        self.__chess_board_svg.src = svg.board(self.board, colors=self.__board_colors, lastmove=engine_move, check=True)
+                        self.dialog("Check!")
+                        PlaySound("SystemQuestion", SND_ALIAS)
+                    if self.board.is_checkmate():
+                        PlaySound("SystemExit", SND_ALIAS)
                     self.__chess_board_svg.src = svg.board(self.board, colors=self.__board_colors, lastmove=engine_move)
                 self.update_when_mounted(self.__chess_board_svg)
                 player_turn = True
@@ -134,29 +141,41 @@ class GameContainer(Column):
             while player_turn and self.__game_status and not self.board.is_game_over():
                 frame = self.__capture.read()[1]
                 chess_board = self.__image_processing.get_chessboard(frame)
-                move = self.__image_processing.get_move(chess_board, self.__player_color)
-                if move:
-                    self.board.push(move)
-                    self.__chess_board_svg.src = svg.board(self.board, colors=self.__board_colors, lastmove=move)
-                    self.update_when_mounted(self.__chess_board_svg)
-                    player_turn = False
+                player_move = self.__image_processing.get_move(chess_board, self.__player_color, self.board)
+                if not self.__illegal_move and player_move == 1:
+                    self.dialog("Illegal move!")
+                    PlaySound("SystemHand", SND_ALIAS)
+                    self.__illegal_move = True
+                    continue
+                if player_move == 0:
+                    self.__illegal_move = False
+                    continue
+                if player_move == 1:
+                    continue
+                print("Player made move:", player_move)
+                self.board.push(player_move)
+                self.__chess_board_svg.src = svg.board(self.board, colors=self.__board_colors, lastmove=player_move)
+                self.update_when_mounted(self.__chess_board_svg)
+                player_turn = False
+                break
         game_data = GameData(
             self.board,
             self.__pending_game_stockfish_skill_lvl,
             self.__start_datetime,
             datetime.now(TIMEZONE),
-            ("Stockfish", self.__player_name),
+            (self.__player_name, "Stockfish"),
         )
         with ChessDatabase("chess.db") as database:
             database.add(game_data)
         self.__game_status = False
+        self.__illegal_move = False
         self.__start_button.disabled = False
         self.__resign_button.disabled = True
         self.__start_button.update()
         self.__resign_button.update()
         if self.board.is_game_over():
             self.__image_processing.clear_boards()
-            self.dialog("Game over!")
+            self.dialog("Check mate!")
         self.update_when_mounted(self.__chess_board_svg)
 
     def make_move(self, move: Chess_Move, speed: int = 10, height: int = 80) -> None:
@@ -193,6 +212,7 @@ class GameContainer(Column):
             return
         # self.robot.abort_motion()
         self.__game_status = False
+        self.__illegal_move = False
         self.__image_processing.clear_boards()
         self.__resign_button.disabled = True
         self.__start_button.disabled = False

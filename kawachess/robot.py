@@ -209,6 +209,7 @@ class Robot:
         self.read_until(Flag.ETB)
         self.__write(Flag.STX + b"E    0" + Flag.ETB)
         self.read_until(b">")
+        sleep(0.1)
 
     def exec_program(self, program: Program) -> None:
         self.__write(f"EXE {program.name}")

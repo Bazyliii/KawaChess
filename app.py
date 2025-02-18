@@ -1,6 +1,10 @@
+import threading
+from base64 import b64encode
 from os import getlogin
-from typing import Final
+from time import sleep
+from typing import TYPE_CHECKING, Final
 
+from cv2 import CAP_DSHOW, CAP_PROP_FPS, CAP_PROP_FRAME_HEIGHT, CAP_PROP_FRAME_WIDTH, VideoCapture, imencode, resize
 from flet import (
     AlertDialog,
     AnimatedSwitcher,
@@ -8,8 +12,10 @@ from flet import (
     AnimationCurve,
     AppBar,
     Column,
+    Control,
     ControlEvent,
     CrossAxisAlignment,
+    FilterQuality,
     FontWeight,
     Icon,
     IconButton,
@@ -50,6 +56,11 @@ from kawachess import (
     Robot,
 )
 
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
+
+from time import sleep
+
 ROBOT_IP: Final[str] = "192.168.1.155"
 ROBOT_PORT: Final[int] = 23
 # ROBOT_IP: Final[str] = "127.0.0.1"
@@ -68,6 +79,54 @@ class AboutContainer(Column):
             Text("A chess app for Kawasaki FS03N robot", size=12, text_align=TextAlign.CENTER),
             Text("Made with ❤️ by Jarosław Wierzbowski", size=12, text_align=TextAlign.CENTER),
             Markdown("[GitHub Repository](https://github.com/Bazyliii/KawaChess)", auto_follow_links=True),
+        ]
+
+
+class Camera(Image):
+    def __init__(self) -> None:
+        super().__init__()
+        self.capture: VideoCapture = VideoCapture(0, CAP_DSHOW)
+        self.capture.set(CAP_PROP_FPS, 30)
+        self.capture.set(CAP_PROP_FRAME_WIDTH, 720)
+        self.capture.set(CAP_PROP_FRAME_HEIGHT, 1280)
+        self.width = self.capture.get(CAP_PROP_FRAME_WIDTH)
+        self.height = self.capture.get(CAP_PROP_FRAME_HEIGHT)
+        self.filter_quality = FilterQuality.NONE
+        self.delay: float = 0.5 / 30
+        self.__is_mounted = False
+
+    def did_mount(self) -> None:
+        self.__is_mounted = True
+        self.delay: float = 0.5 / self.capture.get(CAP_PROP_FPS)
+        threading.Thread(target=self.get_frames, daemon=True).start()
+
+    def get_frames(self) -> None:
+        while True:
+            if self.capture.isOpened() and self.capture.read()[0]:
+                frame = self.capture.read()[1]
+                self.src_base64 = b64encode(imencode(".bmp", frame)[1]).decode("utf-8")
+                self.update_when_mounted(self)
+            else:
+                self.src = "no_camera.png"
+                continue
+            sleep(self.delay)
+
+    def update_when_mounted(self, control: Control) -> None:
+        if self.__is_mounted:
+            control.update()
+
+    def will_unmount(self) -> None:
+        self.__is_mounted = False
+
+
+class CameraContainer(Column):
+    def __init__(self) -> None:
+        super().__init__()
+        self.expand = True
+        self.alignment = MainAxisAlignment.CENTER
+        self.horizontal_alignment = CrossAxisAlignment.CENTER
+        self.controls = [
+            Camera(),
         ]
 
 
@@ -105,18 +164,6 @@ class SettingsContainer(Column):
         )
         self.controls = [
             self.__nickname_field,
-            Text("Player piece color:", size=25),
-            RadioGroup(
-                content=Row(
-                    [
-                        Radio(value="white", label="White", active_color=ACCENT_COLOR_3),
-                        Radio(value="black", label="Black", active_color=ACCENT_COLOR_3),
-                    ],
-                    alignment=MainAxisAlignment.CENTER,
-                ),
-                value="black",
-                on_change=lambda e: self.__control_changed(e, self.game, "player_color"),
-            ),
             Text("Stockfish skill level:", size=25),
             self.__skill_slider,
             Row(
@@ -150,10 +197,11 @@ class KawaChessApp:
         self.__page: Page = page
         self.__robot: Robot = Robot(ROBOT_IP, ROBOT_PORT, self.__show_dialog)
         self.__page.run_thread(self.__robot.connect)
-        self.__game_container: GameContainer = GameContainer(420, self.__show_dialog, self.__robot)
+        self.__game_container: GameContainer = GameContainer(600, self.__show_dialog, self.__robot)
         self.__database_container: DatabaseContainer = DatabaseContainer()
         self.__settings_container: SettingsContainer = SettingsContainer(self.__robot, self.__game_container)
         self.__about_container: AboutContainer = AboutContainer()
+        self.__camera_container: CameraContainer = CameraContainer()
         self.__maximize_button: IconButton = MaximizeButton(on_click=lambda _: self.__maximize())
         self.__minimize_button: IconButton = MinimizeButton(on_click=lambda _: self.__minimize())
         self.__close_button: IconButton = CloseButton(on_click=self.__close)
@@ -200,6 +248,7 @@ class KawaChessApp:
                 NavigationRailDestination(icon=Icons.PLAY_ARROW_OUTLINED, label="Game"),
                 NavigationRailDestination(icon=Icons.STACKED_LINE_CHART_OUTLINED, label="Database"),
                 NavigationRailDestination(icon=Icons.SETTINGS_OUTLINED, label="Settings"),
+                NavigationRailDestination(icon=Icons.CAMERA_ALT_OUTLINED, label="Camera"),
                 NavigationRailDestination(icon=Icons.INFO_OUTLINED, label="About"),
             ],
             width=72,
@@ -233,6 +282,8 @@ class KawaChessApp:
             case 2:
                 self.__switcher.content = self.__settings_container
             case 3:
+                self.__switcher.content = self.__camera_container
+            case 4:
                 self.__switcher.content = self.__about_container
         self.__switcher.update()
 

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import TYPE_CHECKING, ClassVar, Final, Literal
 
 import numpy as np
 from chess import (
@@ -143,15 +143,14 @@ class ImageProcessing:
         self.__prev_gray = blur_frame.copy()
         return not movement_detected
 
-    def is_valid(self, frame: MatLike) -> bool:
-        board = self.get_piece_board(frame, None)
-        print(board)
-        return board.piece_map() == self.__valid_boards[0].piece_map() or board.piece_map() == self.__valid_boards[1].piece_map()
-
     def get_chessboard(self, frame: MatLike) -> MatLike:
         detected_markers: tuple = self.DETECTOR.detectMarkers(frame)
         if detected_markers[1] is None or any({0, 1}) not in detected_markers[1]:
-            return frame
+            return warpPerspective(
+                frame,
+                getPerspectiveTransform(self.__perspective_source, self.__perspective_destination),
+                (self.__frame_size, self.__frame_size),
+            )
         if all({0, 1}) in detected_markers[1].flatten():
             self.__corner_point_1 = detected_markers[0][list(detected_markers[1]).index(0)].reshape((4, 2)).astype(int)[1]
             self.__corner_point_2 = detected_markers[0][list(detected_markers[1]).index(1)].reshape((4, 2)).astype(int)[3]
@@ -197,12 +196,12 @@ class ImageProcessing:
                     board.set_piece_at(cord[4], self.PIECE_IDS[marker_id])
         return board
 
-    def get_move(self, frame: MatLike, color: Color) -> Move | None:
+    def get_move(self, frame: MatLike, color: Color, board: Board) -> Move | Literal[0] | Literal[1]:
         self.__counter += 1
         new_board = self.get_piece_board(frame, color)
         new_piece_map = new_board.piece_map()
-        if self.__counter < 30:
-            return None
+        if self.__counter < 10:
+            return 0
         self.__counter = 0
         if self.__white_board.king(WHITE) == E1 and new_board.king(WHITE) == C1:
             self.__white_board.set_piece_map(new_piece_map)
@@ -216,23 +215,27 @@ class ImageProcessing:
         if self.__black_board.king(BLACK) == E8 and new_board.king(BLACK) == G8:
             self.__black_board.set_piece_map(new_piece_map)
             return Move.from_uci("e8g8")
+
         if (
             not self.is_stable(frame)
             or len(self.__white_board.piece_map() if color else self.__black_board.piece_map()) != self.__piece_count
             or len(new_piece_map) != self.__piece_count
             or new_piece_map == (self.__white_board.piece_map() if color else self.__black_board.piece_map())
         ):
-            return None
+            return 0
         if self.__white_board.piece_map() if color else self.__black_board.piece_map() != new_piece_map:
             from_square = (
                 self.__white_board.piece_map().items() - new_piece_map.items() if color else self.__black_board.piece_map().items() - new_piece_map.items()
             )
             to_square = new_piece_map.items() - (self.__white_board.piece_map().items() if color else self.__black_board.piece_map().items())
             if len(from_square) != 1 or len(to_square) != 1:
-                return None
+                return 0
+            move = Move.from_uci(f"{square_name(next(iter(from_square))[0])}{square_name(next(iter(to_square))[0])}")
+            if not board.is_legal(move):
+                return 1
             self.__white_board.set_piece_map(new_piece_map) if color else self.__black_board.set_piece_map(new_piece_map)
-            return Move.from_uci(f"{square_name(next(iter(from_square))[0])}{square_name(next(iter(to_square))[0])}")
-        return None
+            return move
+        return 0
 
     def get_player_side(self, frame: MatLike) -> Color:
         board = self.get_piece_board(frame, None)
