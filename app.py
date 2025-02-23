@@ -59,7 +59,6 @@ from kawachess import (
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-from time import sleep
 
 ROBOT_IP: Final[str] = "192.168.1.155"
 ROBOT_PORT: Final[int] = 23

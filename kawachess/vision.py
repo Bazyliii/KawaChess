@@ -13,11 +13,13 @@ from chess import (
     C8,
     D1,
     D2,
+    D8,
     E1,
     E2,
     E8,
     F1,
     F2,
+    F8,
     G1,
     G2,
     G8,
@@ -124,10 +126,6 @@ class ImageProcessing:
         self.__prev_gray: MatLike = np.zeros((self.__frame_size, self.__frame_size), dtype=np.uint8)
         self.__white_board: Board = Board(fen="8/8/8/8/8/8/PPPPPPPP/RNBQKBNR")
         self.__black_board: Board = Board(fen="rnbqkbnr/pppppppp/8/8/8/8/8/8")
-        self.__valid_boards: tuple[Board, Board] = (
-            Board(fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"),
-            Board(fen="RNBKQBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbkqbnr"),
-        )
         self.__piece_count: int = 16
         self.__counter: int = 0
 
@@ -196,26 +194,26 @@ class ImageProcessing:
                     board.set_piece_at(cord[4], self.PIECE_IDS[marker_id])
         return board
 
-    def get_move(self, frame: MatLike, color: Color, board: Board) -> Move | Literal[0] | Literal[1]:
+    def get_move(self, frame: MatLike, color: Color, board: Board) -> Literal[0, 1] | Move:
         self.__counter += 1
+        promotion = ""
         new_board = self.get_piece_board(frame, color)
         new_piece_map = new_board.piece_map()
         if self.__counter < 10:
             return 0
         self.__counter = 0
-        if self.__white_board.king(WHITE) == E1 and new_board.king(WHITE) == C1:
+        if self.__white_board.king(WHITE) == E1 and new_board.king(WHITE) == C1 and new_board.piece_at(D1) == Piece(ROOK, WHITE):
             self.__white_board.set_piece_map(new_piece_map)
             return Move.from_uci("e1c1")
-        if self.__black_board.king(BLACK) == E8 and new_board.king(BLACK) == C8:
+        if self.__black_board.king(BLACK) == E8 and new_board.king(BLACK) == C8 and new_board.piece_at(D8) == Piece(ROOK, BLACK):
             self.__black_board.set_piece_map(new_piece_map)
             return Move.from_uci("e8c8")
-        if self.__white_board.king(WHITE) == E1 and new_board.king(WHITE) == G1:
+        if self.__white_board.king(WHITE) == E1 and new_board.king(WHITE) == G1 and new_board.piece_at(F1) == Piece(ROOK, WHITE):
             self.__white_board.set_piece_map(new_piece_map)
             return Move.from_uci("e1g1")
-        if self.__black_board.king(BLACK) == E8 and new_board.king(BLACK) == G8:
+        if self.__black_board.king(BLACK) == E8 and new_board.king(BLACK) == G8 and new_board.piece_at(F8) == Piece(ROOK, BLACK):
             self.__black_board.set_piece_map(new_piece_map)
             return Move.from_uci("e8g8")
-
         if (
             not self.is_stable(frame)
             or len(self.__white_board.piece_map() if color else self.__black_board.piece_map()) != self.__piece_count
@@ -230,7 +228,15 @@ class ImageProcessing:
             to_square = new_piece_map.items() - (self.__white_board.piece_map().items() if color else self.__black_board.piece_map().items())
             if len(from_square) != 1 or len(to_square) != 1:
                 return 0
-            move = Move.from_uci(f"{square_name(next(iter(from_square))[0])}{square_name(next(iter(to_square))[0])}")
+            # if (
+            #     square_name(next(iter(to_square))[0])[0] in "abcdefgh"
+            #     and square_name(next(iter(to_square))[0])[1] in "8"
+            # ):
+            #     promotion = self.get_promotion(next(iter(to_square)), board)
+            #     if promotion == "":
+            #         return 0
+            move = Move.from_uci(f"{square_name(next(iter(from_square))[0])}{square_name(next(iter(to_square))[0])}{promotion}")
+            print(move)
             if not board.is_legal(move):
                 return 1
             self.__white_board.set_piece_map(new_piece_map) if color else self.__black_board.set_piece_map(new_piece_map)
@@ -252,5 +258,13 @@ class ImageProcessing:
         self.__black_board = Board(fen="rnbqkbnr/pppppppp/8/8/8/8/8/8 b KQkq")
         self.__piece_count = 16
 
-    def get_promotion() -> None:
-        pass
+    # def get_promotion(self, square: tuple[Square, Piece], board: Board) -> str:
+    #     new_piece = None
+    #     if len(set(self.__white_board.piece_map()) - set(board.piece_map())) == 0:
+    #         return ""
+    #     if len(set(self.__white_board.piece_map()) - set(board.pieces(WHITE))) == 1:
+    #         new_piece = square[1]
+    #     if new_piece == None:
+    #         return ""
+    #     print("new piece", new_piece)
+    #     return {Piece(ROOK, WHITE): "r", Piece(QUEEN, WHITE): "q", Piece(KNIGHT, WHITE): "n", Piece(BISHOP, WHITE): "b"}[new_piece]

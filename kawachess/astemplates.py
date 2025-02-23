@@ -1,6 +1,6 @@
 from chess import Color
 
-from kawachess.gripper import State
+from kawachess.gripper import State as Gripper
 from kawachess.robot import Point, Program
 
 
@@ -17,9 +17,9 @@ def home(speed: int, height: int, drop: Point) -> Program:
     )
 
 
-def move_without_capture(from_point: Point, to_point: Point, drop: Point, speed: int, height: int) -> tuple[Program | State, ...]:
+def move_without_capture(from_point: Point, to_point: Point, drop: Point, speed: int, height: int) -> tuple[Program | Gripper, ...]:
     return (
-        State.OPEN,
+        Gripper.OPEN,
         Program(
             f"""
             .PROGRAM nocap_1 ()
@@ -30,7 +30,7 @@ def move_without_capture(from_point: Point, to_point: Point, drop: Point, speed:
 
             """
         ),
-        State.CLOSE,
+        Gripper.CLOSE,
         Program(
             f"""
             .PROGRAM nocap_2 ()
@@ -42,14 +42,14 @@ def move_without_capture(from_point: Point, to_point: Point, drop: Point, speed:
 
             """
         ),
-        State.OPEN,
+        Gripper.OPEN,
         home(30, height, drop),
     )
 
 
-def move_with_capture(from_point: Point, to_point: Point, drop: Point, speed: int, height: int) -> tuple[Program | State, ...]:
+def move_with_capture(from_point: Point, to_point: Point, drop: Point, speed: int, height: int) -> tuple[Program | Gripper, ...]:
     return (
-        State.OPEN,
+        Gripper.OPEN,
         Program(
             f"""
             .PROGRAM cap_1 ()
@@ -60,7 +60,7 @@ def move_with_capture(from_point: Point, to_point: Point, drop: Point, speed: in
 
             """
         ),
-        State.CLOSE,
+        Gripper.CLOSE,
         Program(
             f"""
             .PROGRAM cap_2 ()
@@ -71,7 +71,7 @@ def move_with_capture(from_point: Point, to_point: Point, drop: Point, speed: in
 
             """
         ),
-        State.OPEN,
+        Gripper.OPEN,
         Program(
             f"""
             .PROGRAM cap_3 ()
@@ -82,7 +82,7 @@ def move_with_capture(from_point: Point, to_point: Point, drop: Point, speed: in
 
             """
         ),
-        State.CLOSE,
+        Gripper.CLOSE,
         Program(
             f"""
             .PROGRAM cap_4 ()
@@ -94,16 +94,16 @@ def move_with_capture(from_point: Point, to_point: Point, drop: Point, speed: in
 
             """
         ),
-        State.OPEN,
+        Gripper.OPEN,
         home(30, height, drop),
     )
 
 
-def kingside_castling(drop: Point, color: Color, speed: int, height: int) -> tuple[Program | State, ...]:
+def kingside_castling(drop: Point, color: Color, speed: int, height: int) -> tuple[Program | Gripper, ...]:
     # WHITE KING: E1->G1 ROOK: H1->F1
     # BLACK KING: E8->G8 ROOK: H8->F8
     return (
-        State.OPEN,
+        Gripper.OPEN,
         Program(
             f"""
             .PROGRAM king_1 ()
@@ -114,7 +114,7 @@ def kingside_castling(drop: Point, color: Color, speed: int, height: int) -> tup
 
             """
         ),
-        State.CLOSE,
+        Gripper.CLOSE,
         Program(
             f"""
             .PROGRAM king_2 ()
@@ -126,7 +126,7 @@ def kingside_castling(drop: Point, color: Color, speed: int, height: int) -> tup
 
             """
         ),
-        State.OPEN,
+        Gripper.OPEN,
         Program(
             f"""
             .PROGRAM king_3 ()
@@ -138,7 +138,7 @@ def kingside_castling(drop: Point, color: Color, speed: int, height: int) -> tup
 
             """
         ),
-        State.CLOSE,
+        Gripper.CLOSE,
         Program(
             f"""
             .PROGRAM king_4 ()
@@ -150,16 +150,16 @@ def kingside_castling(drop: Point, color: Color, speed: int, height: int) -> tup
 
             """
         ),
-        State.OPEN,
+        Gripper.OPEN,
         home(30, height, drop),
     )
 
 
-def queenside_castling(drop: Point, color: Color, speed: int, height: int) -> tuple[Program | State, ...]:
+def queenside_castling(drop: Point, color: Color, speed: int, height: int) -> tuple[Program | Gripper, ...]:
     # WHITE KING: E1->C1 ROOK: A1->D1
     # BLACK KING: E8->C8 ROOK: A8->D8
     return (
-        State.OPEN,
+        Gripper.OPEN,
         Program(
             f"""
             .PROGRAM queen_1 ()
@@ -170,7 +170,7 @@ def queenside_castling(drop: Point, color: Color, speed: int, height: int) -> tu
 
             """
         ),
-        State.CLOSE,
+        Gripper.CLOSE,
         Program(
             f"""
             .PROGRAM queen_2 ()
@@ -182,7 +182,7 @@ def queenside_castling(drop: Point, color: Color, speed: int, height: int) -> tu
 
             """
         ),
-        State.OPEN,
+        Gripper.OPEN,
         Program(
             f"""
             .PROGRAM queen_3 ()
@@ -194,7 +194,7 @@ def queenside_castling(drop: Point, color: Color, speed: int, height: int) -> tu
 
             """
         ),
-        State.CLOSE,
+        Gripper.CLOSE,
         Program(
             f"""
             .PROGRAM queen_4 ()
@@ -206,14 +206,14 @@ def queenside_castling(drop: Point, color: Color, speed: int, height: int) -> tu
 
             """
         ),
-        State.OPEN,
+        Gripper.OPEN,
         home(30, height, drop),
     )
 
 
-def en_passant(from_point: Point, to_point: Point, take_point: Point, drop: Point, speed: int, height: int) -> tuple[Program | State, ...]:
+def en_passant(from_point: Point, to_point: Point, take_point: Point, drop: Point, speed: int, height: int) -> tuple[Program | Gripper, ...]:
     return (
-        State.OPEN,
+        Gripper.OPEN,
         Program(
             f"""
             .PROGRAM enpass_1 ()
@@ -224,7 +224,7 @@ def en_passant(from_point: Point, to_point: Point, take_point: Point, drop: Poin
 
             """
         ),
-        State.CLOSE,
+        Gripper.CLOSE,
         Program(
             f"""
             .PROGRAM enpass_2 ()
@@ -236,7 +236,7 @@ def en_passant(from_point: Point, to_point: Point, take_point: Point, drop: Poin
 
             """
         ),
-        State.OPEN,
+        Gripper.OPEN,
         Program(
             f"""
             .PROGRAM enpass_3 ()
@@ -248,7 +248,7 @@ def en_passant(from_point: Point, to_point: Point, take_point: Point, drop: Poin
 
             """
         ),
-        State.CLOSE,
+        Gripper.CLOSE,
         home(30, height, drop),
-        State.OPEN,
+        Gripper.OPEN,
     )

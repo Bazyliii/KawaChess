@@ -19,3 +19,4 @@ kawachess/__pycache__/*
 kawachess.egg-info
 temp
 tmp.py
+test_*.py

@@ -27,6 +27,7 @@ from kawachess.vision import ImageProcessing
 
 TIMEZONE: Final[BaseTzInfo] = timezone("Europe/Warsaw")
 
+
 class GameContainer(Column):
     def __init__(self, board_size: int, dialog: Callable[[str], None], robot: Robot) -> None:
         super().__init__()
@@ -122,14 +123,14 @@ class GameContainer(Column):
             if not player_turn:
                 engine_move: Chess_Move | None = self.__engine.play(self.board, Limit(time=2.0)).move
                 if engine_move is None or engine_move not in self.board.legal_moves:
-                    print("Stockfish tried to make an illegal move!")
                     continue
-                print("Stockfish made move:", engine_move.uci())
                 self.make_move(engine_move)
                 if self.__game_status:
                     self.board.push(engine_move)
+                    if self.board.is_stalemate():
+                        self.dialog("Stalemate!")
+                        PlaySound("SystemExit", SND_ALIAS)
                     if self.board.is_into_check(engine_move) and not self.board.is_checkmate():
-                        self.__chess_board_svg.src = svg.board(self.board, colors=self.__board_colors, lastmove=engine_move, check=True)
                         self.dialog("Check!")
                         PlaySound("SystemQuestion", SND_ALIAS)
                     if self.board.is_checkmate():
@@ -152,7 +153,6 @@ class GameContainer(Column):
                     continue
                 if player_move == 1:
                     continue
-                print("Player made move:", player_move)
                 self.board.push(player_move)
                 self.__chess_board_svg.src = svg.board(self.board, colors=self.__board_colors, lastmove=player_move)
                 self.update_when_mounted(self.__chess_board_svg)
